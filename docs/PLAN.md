@@ -27,6 +27,8 @@ A personal AI news agent that keeps me caught up every day on the topics I care 
 - Stock Market & Trading: Bloomberg, Reuters Markets, WSJ, Yahoo Finance, MarketWatch, TradingView
 - Cambodia: Khmer Times, Phnom Penh Post, Cambodianess, VOD, CamboJA, Nikkei Asia / Reuters SE Asia
 
+Paywalled sources (Bloomberg, Financial Times, WSJ, The Athletic): headline + excerpt + link only, never scrape past the paywall. Prefer free sources (Reuters, AP, BBC, etc.) for full detail.
+
 ## Core Architecture: One Engine, Multiple Faces
 
 Build the engine (the “brain”) once. Every interface plugs into the same engine.
@@ -98,7 +100,8 @@ Two separate spaces (via Telegram group topics or a mode toggle):
 - Feeds: feedparser, or FreshRSS/Miniflux as the collection layer
 - Article cleaning: trafilatura
 - Database: PostgreSQL + pgvector
-- LLM: any API (OpenAI, Anthropic, Gemini) or a local model
+- Embeddings: a small local multilingual model on CPU
+- LLM: Google Gemini Flash (free tier) via the official google-genai SDK, behind one thin wrapper so the provider can be swapped later
 - Telegram: python-telegram-bot
 - Scheduling: GitHub Actions or cron
 - Web UI: Streamlit/Gradio, later React

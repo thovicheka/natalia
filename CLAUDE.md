@@ -14,6 +14,7 @@ Read these before starting work:
 - `docs/PLAN.md` — what the human wants. The source of truth for features; don't add features that aren't in it.
 - `docs/ROADMAP.md` — **the task list**, plus the decisions already made (LLM, embeddings, database, scheduling…). Work on one task at a time, by its ID (e.g. `1.3`). Don't swap a decided tool without asking.
 - `docs/STATUS.md` — live progress; what's done, blocked, and waiting on the human.
+- `docs/TASK-TEMPLATE.md` — the format the human uses to give you a task (Context / Branch / Job / Decisions / Limits / Finish).
 - Doc style: follow `~/projects/cloud-ai-lab/docs/STYLE.md` (stage-doc shape, placeholders, "Example from this build" blocks with real output, masked secrets).
 
 ## The machine you're on
@@ -30,13 +31,14 @@ Read these before starting work:
 1. **Branches only.** Create a branch per task: `task/<id>-<short-name>` (e.g. `task/1.3-collect`), from `origin/main`. Never commit to `main`. Never force-push.
 2. Commit and push freely to your own task/... branch, as often as useful (at least after each finished step). Never commit or push to main, never merge, never force-push. The human reviews and merges.
 3. **No `sudo`.** If a step needs it (installing PostgreSQL, a `systemd` service, `apt` packages), stop, write the exact command(s) and what they do, and ask the human to run them.
-4. **Never spend money on your own, and never call a paid API without the human's approval.** That includes the Anthropic API, any embedding or speech API, and Modal GPU jobs. Write the code, test it with a fake client, then tell the human the exact command to run and its estimated cost. Don't create accounts, buy anything, or change billing. Free things are fine: fetching public RSS feeds and web pages, local tests.
+4. **Never spend money on your own, and never call a paid API without the human's approval.** That includes any embedding or speech API and Modal GPU jobs. Write the code, test it with a fake client, then tell the human the exact command to run and its estimated cost. Don't create accounts, buy anything, change billing, or attach billing to the Gemini key's Google project. The Gemini free tier costs nothing, but its daily quota is shared with the morning digest: make real Gemini calls only when the task or the human says so, and keep them few. Free things are fine: fetching public RSS feeds and web pages, local tests.
 5. **Secrets stay in `.env`** (git-ignored). Never print, log, commit, or paste keys. Never read `.env` aloud in output. Every key gets a fake-value line in `.env.example`.
 6. **Don't touch security config**: SSH, firewall (`ufw`), Tailscale, user accounts. Ask instead.
 7. **Nothing destructive without asking**: no `rm -rf` outside the task's own files, no dropping databases or tables with real data, no rewriting git history.
 8. **Stay in scope.** Do the task you were given. If you notice something else worth fixing, list it at the end instead of doing it.
 9. **Leave cloud-ai-lab alone.** Don't edit `~/projects/cloud-ai-lab` or `~/projects/lab-runtime`, the Prefect services or their unit files, or the lab's deployments. Natalia only adds its own deployments to pool `lab`. Never use the lab's Telegram alert bot or its `.env`.
-10. **Message only the human.** While building and testing, the bot and any test script send messages only to the human's own chat ID. Never message family or friends unless the human says so.
+10. **Never send private data to the LLM.** The Gemini free tier may use prompts and responses to improve Google's models. News content is fine; secrets, `.env` values, personal details, and private notes are not.
+11. **Message only the human.** While building and testing, the bot and any test script send messages only to the human's own chat ID. Never message family or friends unless the human says so.
 
 ## How to work a task
 
@@ -59,5 +61,7 @@ Read these before starting work:
 - Database: PostgreSQL + pgvector on this server, listening on localhost only. Connection string in `.env` (`DATABASE_URL`).
 - Scheduled jobs are Prefect flows on the shared work pool `lab`, scheduled in `Asia/Phnom_Penh`. No cron, no GitHub Actions.
 - Long-running things (the Telegram bot, the website) run as `systemd` services with `MemoryMax` set. Writing a service file is fine; installing it needs `sudo` → ask.
-- LLM calls go through one small wrapper, so tests can swap in a fake and every call's token use and cost can be logged.
+- LLM: Google Gemini Flash on the free tier, through the official `google-genai` SDK; key `GEMINI_API_KEY` in `.env`. All LLM calls go through one thin wrapper, `natalia/llm.py`; no other module imports `google-genai`. So the provider can be swapped later without touching other code, tests can use a fake, and every call's token use can be logged.
+- Paywalled sources (Bloomberg, FT, WSJ, The Athletic): headline + excerpt + link from the feed only. Never scrape past a paywall. Prefer free sources (Reuters, AP, BBC, …) for full detail.
+- Embeddings run locally on CPU, not through an API.
 - The AI summary always sits next to the source (headline + link + detail); it never replaces it.
