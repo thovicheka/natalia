@@ -184,6 +184,20 @@ def test_long_crawl_delay_blocks():
         f.get("https://slow.test/a")
 
 
+def test_site_that_refuses_twice_is_not_asked_again():
+    pages = {"https://r.test/robots.txt": ROBOTS_OPEN}
+    pages |= {f"https://r.test/{i}": c.Response(403, "") for i in range(2)}
+    pages["https://r.test/2"] = ok(page())
+    f = FakeFetcher(pages)
+    assert [f.get(f"https://r.test/{i}").status for i in range(2)] == [403, 403]
+    with pytest.raises(c.SiteRefused):
+        f.get("https://r.test/2")
+    assert "https://r.test/2" not in f.seen
+    it = _item("https://r.test/2")
+    c.extract_text(f, it)
+    assert it.body is None and "refused" in it.text_status
+
+
 def _item(link: str, paywalled: bool = False) -> c.Item:
     src = Source("S", "general", "https://s.test/feed", paywalled=paywalled)
     return c.Item(src, 1, link, link, "Story", "story", None, None, c.urlsplit(link).hostname)
@@ -251,11 +265,15 @@ def _pages() -> dict:
         FREE.url: ok(
             rss(
                 (
-                    "Cambodia rice exports jump to a record high in September",
+                    "Testland rice exports jump to a record high in Zebrember",
                     "https://free.test/rice?utm_source=rss",
                     recent,
                 ),
-                ("Central bank holds rates steady again", "https://free.test/rates", recent),
+                (
+                    "Testland central bank holds zebra rates steady again",
+                    "https://free.test/rates",
+                    recent,
+                ),
                 ("An old story from last week", "https://free.test/old", old),
             )
         ),
@@ -265,23 +283,35 @@ def _pages() -> dict:
         OTHER.url: ok(
             rss(
                 (
-                    "Cambodia rice exports jump to a record high in September",
+                    "Testland rice exports jump to a record high in Zebrember",
                     "https://free.test/rice?ref=x",
                     recent,
                 ),
                 (
-                    "Cambodia's rice exports jump to record high in September",
+                    "Testland's rice exports jump to record high in Zebrember",
                     "https://other.test/rice",
                     recent,
                 ),
-                ("Floods close schools in Pursat province", "https://other.test/floods", recent),
+                (
+                    "Floods close zebra schools in Testland province",
+                    "https://other.test/floods",
+                    recent,
+                ),
             )
         ),
         "https://other.test/robots.txt": ok(b"User-agent: natalia\nDisallow: /\n", "text/plain"),
-        PAY.url: ok(rss(("Markets slide on tariff fears", "https://pay.test/markets", recent))),
+        PAY.url: ok(
+            rss(
+                ("Testland markets slide on zebra tariff fears", "https://pay.test/markets", recent)
+            )
+        ),
         GN.url: ok(
             rss(
-                ("Albania's Rama says he will not resign over protests - Reuters", GN_LINK, recent),
+                (
+                    "Testland premier says she will not resign over zebra protests - Reuters",
+                    GN_LINK,
+                    recent,
+                ),
                 source=("Reuters", "https://www.reuters.com"),
             )
         ),
