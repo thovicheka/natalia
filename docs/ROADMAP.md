@@ -52,7 +52,7 @@ The embedding model is the biggest risk: PyTorch alone can take several hundred 
   - 🤖 `CLAUDE.md` (hard rules from cloud-ai-lab, adapted), this roadmap, `docs/STATUS.md`, `docs/TASK-TEMPLATE.md`, `.env.example`; check `.gitignore` covers `.env` and `.venv`. PLAN.md restored as Markdown.
   - **Done when:** the files are on branch `task/0.1-project-setup`, ready for review.
 
-- [ ] **0.2 Python project and agent guardrails** — 🤖
+- [x] **0.2 Python project and agent guardrails** — 🤖
   - 🤖 `uv init` (Python 3.12), package `natalia/`, `pytest` and `ruff` set up, one passing test.
   - 🤖 `.claude/settings.json` with `permissions.deny` rules like cloud-ai-lab's (`sudo`, push to main, force-push, `git merge`, `rm -rf`, reading `.env`, `prefect deployment run`).
   - **Done when:** `uv run pytest` passes and a denied command is blocked.
@@ -63,13 +63,13 @@ The embedding model is the biggest risk: PyTorch alone can take several hundred 
 
 Goal: every morning at 07:00 the human gets a digest on Telegram: headline, link, detail, AI summary and "why it matters", for each topic.
 
-- [ ] **1.1 Sources and feeds** — 🤖 + 🧑
+- [x] **1.1 Sources and feeds** — 🤖 + 🧑
   - 🤖 Find RSS/Atom feed URLs for the sources in PLAN.md, per topic. Fetch each once (free) and record: works / broken / paywalled / no feed. Write `config/sources.yaml` (topic, source, feed URL, language, paywalled).
   - 🤖 Paywalled sources (Bloomberg, FT, WSJ, The Athletic) are kept as headline + excerpt + link only. Each topic has free sources (Reuters, AP, BBC, …) for full detail.
   - 🧑 Review the list.
   - **Done when:** every topic has at least 2 working free feeds, and a script prints the 5 latest headlines per topic.
 
-- [ ] **1.2 Database** — 🧑 + 🤖
+- [x] **1.2 Database** — 🧑 + 🤖
   - 🤖 Write the exact install commands and a memory-tuned config (localhost only, small `shared_buffers`, low `max_connections`), plus the role and database setup.
   - 🧑 Install and configure (`sudo`):
     ```bash
@@ -93,7 +93,7 @@ Goal: every morning at 07:00 the human gets a digest on Telegram: headline, link
   - 🧑 Pick: keep the local model, or (only if needed) an embedding API, which means 🧑 an account and a key (and a spend limit if it's paid).
   - **Done when:** the choice is recorded with measured numbers, and the daily flow's peak stays inside the memory budget.
 
-- [ ] **1.6 Gemini API key** — 🧑
+- [x] **1.6 Gemini API key** — 🧑
   - 🧑 Sign in at aistudio.google.com with a Google account, create an API key, and add `GEMINI_API_KEY` to `.env`. Free tier: no paid account, no billing, no spend limit needed. Don't attach billing to the key's project.
   - **Done when:** the key is in `.env` (the agent doesn't test it until a task says so).
 
