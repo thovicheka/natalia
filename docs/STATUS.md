@@ -4,6 +4,12 @@ Live progress for agent work. The agent updates this after every step and pushes
 
 ## Summary
 
+**Run of 2026-10-15 (fifth): 1.2 agent part done, blocked on 🧑 install (branch `task/1.2-database`, from `origin/main` at 915d1de, where 1.1 is merged). Stopping here.** Schema as one SQL migration (`migrations/0001_initial_schema.sql`: sources, articles, embeddings `vector(384)` with an HNSW cosine index, summaries, digests, digest_items), connection code and a migration runner (`natalia/db.py`, reads `DATABASE_URL` from the environment or `.env`), and a memory-tuned PostgreSQL config (`deploy/postgresql/natalia.conf`: `shared_buffers=64MB`, `max_connections=20`, `jit=off`, localhost only). Added `psycopg[binary]` and `python-dotenv` to the project's `.venv` (nothing system-wide). 31 tests pass; the 3 database tests skip until PostgreSQL is installed. No sudo, no accounts, no Gemini call, no money spent.
+
+**Human must:**
+1. **1.2:** run the install and setup commands under "1.2 — Database" below (`sudo`, ~5 minutes), then tell the agent so it can run the migration and the database tests and measure PostgreSQL's memory (or run those 3 commands yourself).
+2. The earlier steps still stand: tick 0.2, 1.1 (merged as PR #3) and 1.6 in ROADMAP; the 0.2 deny-rule check; 1.5, 1.7, 1.8, 1.9.
+
 **Run of 2026-10-15 (fourth): 1.1 done (branch `task/1.1-sources`, from `origin/main` at 97a159f, where 0.2 is merged). Stopping here.** `config/sources.yaml` lists 85 feeds across the 9 topics: 74 enabled, 11 disabled with the reason (dead, broken XML, redirect duplicate). Every enabled feed returned items on 2026-10-15. Each topic has 4–13 working free feeds; Cambodia has 14 enabled (10 English, 1 of them paywalled; 4 Khmer). `uv run python -m natalia.feeds` checks every feed and prints the 5 latest headlines per topic. Added `feedparser` and `pyyaml`; 21 tests pass offline. Only plain HTTP GETs to public feeds and homepages: no Gemini call, no accounts, no sudo, no money spent.
 
 **Human must:**
@@ -414,3 +420,218 @@ All checks passed!
 - The same story shows up in several topics (e.g. BBC "Anthropic flags revenue surge" in economics, world-politics and technology), because BBC repeats items across section feeds. Deduplication in 1.3 handles it.
 - Several feeds run many requests to `news.google.com` (10 GN feeds). Fine once a day; worth a polite delay in 1.3.
 - The 0.2 note says this kind of session started in cloud-ai-lab loads cloud-ai-lab's settings, not Natalia's deny rules. That was true again for this run.
+
+## 1.2 — Database
+- **Branch:** `task/1.2-database`
+- **State:** blocked on 🧑: the agent part is done, committed and pushed; PostgreSQL is not installed yet
+- **Done:** schema migration, connection code, migration runner, memory-tuned config, tests (details below).
+- **Next:** once PostgreSQL is installed: `uv run python -m natalia.db migrate`, `uv run pytest` (the 3 database tests then run), measure memory. Then 1.3 (collect) can store articles.
+- **Human must:** run the commands in "Install and set up" below, in order, in one terminal.
+
+### What's on the branch
+| File | What it is |
+|---|---|
+| `migrations/0001_initial_schema.sql` | The schema. Domains `topic` (the 9 topics) and `lang` (`en`, `km`). Tables `sources` (one per feed, unique feed URL), `articles` (unique canonical `url`, indexed `title_norm` for dedup, `excerpt`, `body` (NULL for paywalled), `language`, `topics topic[]`, `published_at`), `embeddings` (`vector(384)`, model name, HNSW index with cosine distance), `summaries` (summary + why it matters, one per article and language), `digests` (one per day and language, with request and token counts for 1.7), `digest_items` (articles in a digest, per topic, in order). `CREATE EXTENSION IF NOT EXISTS vector` is in the migration. |
+| `natalia/db.py` | `database_url()` (environment first, else `.env`; never printed), `connect()`, `migrate()` (each pending `NNNN_*.sql` in its own transaction, recorded in `schema_migrations`, guarded by an advisory lock), `to_vector()` (embedding → pgvector literal), and a CLI: `python -m natalia.db status` / `migrate`. |
+| `deploy/postgresql/natalia.conf` | Memory settings, installed into PostgreSQL's `conf.d/` by the human. |
+| `tests/test_db.py` | 10 tests without a database (migration names, schema topics and languages match `natalia/feeds.py`, vector size, `DATABASE_URL` loading, `to_vector`), and 3 against the real database (migrations applied and pgvector present; insert → nearest-neighbour search → digest join; constraints reject duplicate URLs, unknown topics and languages, wrong vector size). Database tests roll back everything they write. |
+
+**Schema choices to check:**
+- `articles.topics` is an array, not one `topic` column: an article gets its feed's topic plus rule-based ones in 1.4 (e.g. a BBC Business story that mentions Cambodia).
+- An article is stored once; `source_id` is the feed it was first seen in.
+- Summaries are per article and language, not per digest, so a Khmer summary (Phase 3) is written once and reused.
+- `vector(384)` fixes the dimension of `multilingual-e5-small`. If 1.5 picks another model, a new migration changes it.
+
+### Memory: expected use and tuning
+Ubuntu's defaults are `shared_buffers=128MB`, `max_connections=100`, JIT on. `natalia.conf` sets:
+
+| Setting | Value | Why |
+|---|---|---|
+| `listen_addresses` | `localhost` | localhost only (also Ubuntu's default) |
+| `max_connections` | 20 | the flow, the bot, the website and a psql session need a handful; each connection is a process of ~5–10 MB |
+| `shared_buffers` | 64MB | the data is tens of MB in year one; the OS page cache does the rest |
+| `work_mem` | 4MB | default, fine for this data |
+| `maintenance_work_mem` | 64MB | default; used by the HNSW index build and VACUUM |
+| `effective_cache_size` | 512MB | planner hint only, allocates nothing |
+| `jit` | off | JIT loads LLVM (tens of MB per backend) for big analytic queries Natalia doesn't run |
+| `autovacuum_max_workers` | 2 | default 3; a handful of tables |
+
+**Expected:** ~30–60 MB idle after a restart (shared buffers fill as data is read), ~100–150 MB while the daily flow and the bot are connected, worst case under ~200 MB. Target is ≤ 250 MB. PostgreSQL runs in its own `systemd` unit, so its memory doesn't count against the lab worker's `MemoryMax=900M`; only the Python client side does. To be measured after install.
+
+### Install and set up (🧑, `sudo`)
+Run these in your own terminal, in order, in **one** shell session (steps 5–11 share a shell variable). Don't run them with Claude Code's `!` prefix: that puts the output into the agent's chat. Nothing below prints the password.
+
+1. Refresh the package lists.
+```bash
+sudo apt update
+```
+
+2. Install PostgreSQL 16 (16.15) and pgvector (0.6.0) from Ubuntu's archive; this creates and starts the `16/main` cluster.
+```bash
+sudo apt install -y postgresql postgresql-16-pgvector
+```
+
+3. Install Natalia's memory settings (needs the `task/1.2-database` branch checked out, or merged).
+```bash
+sudo install -m 644 -o postgres -g postgres ~/projects/natalia/deploy/postgresql/natalia.conf /etc/postgresql/16/main/conf.d/natalia.conf
+```
+
+4. Restart PostgreSQL so the settings take effect.
+```bash
+sudo systemctl restart postgresql
+```
+
+5. Generate the role's password into a shell variable (48 hex characters, safe in a URL; nothing printed).
+```bash
+NATALIA_DB_PW="$(openssl rand -hex 24)"
+```
+
+6. Create the `natalia` login role with that password; it goes to `psql` on stdin, so it never shows in the process list.
+```bash
+printf "CREATE ROLE natalia LOGIN PASSWORD '%s';\n" "$NATALIA_DB_PW" | sudo -u postgres psql -q -v ON_ERROR_STOP=1
+```
+If this one fails, generate a new password (step 5) before retrying: PostgreSQL writes a failed statement to its log.
+
+7. Create the `natalia` database, owned by the role, in UTF-8 (needed for Khmer).
+```bash
+sudo -u postgres createdb --owner=natalia --encoding=UTF8 --template=template0 natalia
+```
+
+8. Enable pgvector in that database (it needs a superuser, so the migration can't do it).
+```bash
+sudo -u postgres psql -d natalia -c 'CREATE EXTENSION IF NOT EXISTS vector;'
+```
+
+9. Remove the old (fake) `DATABASE_URL` line from `.env`, if any. No `sudo`.
+```bash
+sed -i '/^DATABASE_URL=/d' ~/projects/natalia/.env
+```
+
+10. Add the real `DATABASE_URL` to `.env` (`printf` is a shell builtin; nothing printed). No `sudo`.
+```bash
+printf 'DATABASE_URL=postgresql://natalia:%s@127.0.0.1:5432/natalia\n' "$NATALIA_DB_PW" >> ~/projects/natalia/.env
+```
+
+11. Forget the password in this shell.
+```bash
+unset NATALIA_DB_PW
+```
+
+12. Check the settings took effect. Expected: `jit|off`, `listen_addresses|localhost`, `max_connections|20`, `shared_buffers|8192` (8192 × 8 kB = 64 MB).
+```bash
+sudo -u postgres psql -Atc "SELECT name, setting FROM pg_settings WHERE name IN ('shared_buffers','max_connections','jit','listen_addresses') ORDER BY name"
+```
+
+`pg_hba.conf` needs no change: Ubuntu's default already allows password (`scram-sha-256`) logins from `127.0.0.1`.
+
+**After that, no `sudo` (the agent can do these in the next run, or you can):**
+```bash
+cd ~/projects/natalia && uv run python -m natalia.db migrate   # expect: applied: 0001_initial_schema
+uv run pytest                                                  # expect: all passed, 0 skipped
+systemctl status postgresql@16-main --no-pager                 # the "Memory:" line
+```
+Use `postgresql@16-main`, not `postgresql`: on Ubuntu `postgresql.service` is an empty wrapper and shows no memory.
+
+<details><summary>Steps and output from this build</summary>
+
+**1. Branch from `origin/main`.** 1.1 was merged (PR #3).
+```console
+$ git fetch origin && git log --oneline -1 origin/main
+915d1de Merge pull request #3 from thovicheka/task/1.1-sources
+$ git switch -c task/1.2-database origin/main
+Switched to a new branch 'task/1.2-database'
+```
+**Result:** ✅
+
+**2. Which packages apt would install** (read-only, no `sudo`):
+```console
+$ apt-cache policy postgresql postgresql-16 postgresql-16-pgvector
+postgresql:
+  Installed: (none)
+  Candidate: 16+257build1.1
+postgresql-16:
+  Installed: (none)
+  Candidate: 16.15-0ubuntu0.24.04.1
+postgresql-16-pgvector:
+  Installed: (none)
+  Candidate: 0.6.0-1
+$ apt-cache show postgresql-16-pgvector | grep Depends
+Depends: postgresql-16, postgresql-16-jit-llvm (>= 17), libc6 (>= 2.14)
+$ locale | head -1
+LANG=en_US.UTF-8
+```
+**Result:** ✅ pgvector 0.6.0 supports HNSW indexes (0.5+). It pulls in the JIT package, hence `jit = off`. The server locale is UTF-8; `createdb` still sets UTF8 explicitly.
+
+**3. Python dependencies** (project `.venv` only):
+```console
+$ uv add 'psycopg[binary]' python-dotenv
+ + psycopg==3.3.6
+ + psycopg-binary==3.3.6
+ + python-dotenv==1.2.4
+ + typing-extensions==4.16.0
+```
+**Result:** ✅ `psycopg[binary]` brings its own libpq, so no system `libpq-dev` is needed.
+
+**4. Migration runner check.** A migration file holds several statements; psycopg sends a query without parameters through the simple query protocol, which allows that:
+```console
+$ sed -n 455,459p .venv/lib/python3.12/site-packages/psycopg/_cursor_base.py
+        else:
+            # If we can, let's use simple query protocol,
+            # as it can execute more than one statement in a single query.
+            self._pgconn.send_query(query.query)
+```
+**Result:** ✅
+
+**5. Tests and lint.**
+```console
+$ uv run ruff check . ; uv run ruff format --check .
+E501 Line too long (101 > 100)
+ --> natalia/db.py:3:101
+```
+**Result:** ❌ → fixed. **Error:** a docstring line was 101 characters. **Fix:** shortened it.
+```console
+$ uv run ruff check . ; uv run ruff format --check .
+All checks passed!
+14 files already formatted
+$ uv run pytest -v
+tests/test_db.py::test_migration_files_are_numbered PASSED
+tests/test_db.py::test_migration_files_reject_bad_names PASSED
+tests/test_db.py::test_migration_files_reject_duplicate_numbers PASSED
+tests/test_db.py::test_schema_topics_match_feed_topics PASSED
+tests/test_db.py::test_schema_languages_match_feed_languages PASSED
+tests/test_db.py::test_schema_vector_size_matches_embedding_dim PASSED
+tests/test_db.py::test_database_url_from_environment PASSED
+tests/test_db.py::test_database_url_from_env_file PASSED
+tests/test_db.py::test_database_url_missing PASSED
+tests/test_db.py::test_to_vector PASSED
+tests/test_db.py::test_migrations_applied_and_pgvector_present SKIPPED
+tests/test_db.py::test_round_trip_and_nearest_neighbours SKIPPED (PostgreSQL not reachable...)
+tests/test_db.py::test_constraints SKIPPED (PostgreSQL not reachable...)
+(…21 tests from 0.1–1.1, all PASSED)
+======================== 31 passed, 3 skipped in 0.52s =========================
+```
+**Result:** ✅ The 3 skips are expected until PostgreSQL is installed. The SQL itself has not run on a server yet; the database tests will check it.
+
+**6. The CLI without a server.** First version printed a traceback; changed `main()` to print one line and exit 1.
+```console
+$ uv run python -m natalia.db status
+cannot connect: connection failed: connection to server at "<ip>", port 5432 failed: Connection refused
+	Is the server running on that host and accepting TCP/IP connections?
+```
+**Result:** ✅ No password in the message (psycopg names only host and port).
+
+**7. Commit and push**
+```console
+$ git log --oneline -1
+9d6188b Task 1.2: schema migration (sources, articles, embeddings vector(384), summaries, digests), db connection + migration runner, Postgres memory config, tests
+$ git push -u origin task/1.2-database
+ * [new branch]      task/1.2-database -> task/1.2-database
+```
+**Result:** ✅
+</details>
+
+**Noticed, not done (out of scope):**
+- ROADMAP 1.2's "done when" says `systemctl status postgresql`; on Ubuntu that unit shows no memory. `postgresql@16-main` is the one to read. Worth a one-word edit in ROADMAP.
+- ROADMAP lists a single `topic` per article; the schema uses `topics topic[]` (see "Schema choices to check"). Say if you'd rather have one topic.
+- No upsert helper yet to load `config/sources.yaml` into the `sources` table; 1.3 (collect) needs it first and is the natural place.
+- The test session again started in cloud-ai-lab, so Natalia's `.claude/settings.json` deny rules were not the ones loaded (same as 0.2 and 1.1).
