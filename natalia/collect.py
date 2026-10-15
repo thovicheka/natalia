@@ -192,28 +192,39 @@ def domain_matches(host: str, domains: Iterable[str]) -> bool:
     return any(host == d or host.endswith("." + d) for d in domains)
 
 
-class TitleIndex:
-    """Normalized headlines seen so far, for exact and near-identical matching."""
+def site_of(url_or_host: str) -> str:
+    """The site an article comes from: its host without "www."."""
+    host = urlsplit(url_or_host).hostname if "://" in url_or_host else url_or_host
+    return (host or "").lower().removeprefix("www.")
 
-    def __init__(self, titles: Iterable[str] = ()):
+
+class TitleIndex:
+    """Normalized headlines seen so far, for exact and near-identical matching.
+
+    Exact matches always merge. Near-identical ones merge only across different sites: from one
+    site they are usually a series ("The 9 best movies…" / "The 9 best TV shows…", daily puzzle
+    hints), not one story told twice (task 1.3, the human's decision).
+    """
+
+    def __init__(self, titles: Iterable[tuple[str, str]] = ()):
         self._exact: set[str] = set()
         self._by_token: dict[str, list[int]] = defaultdict(list)
-        self._titles: list[str] = []
-        for t in titles:
-            self.add(t)
+        self._titles: list[tuple[str, str]] = []  # (title_norm, site)
+        for norm, site in titles:
+            self.add(norm, site)
 
-    def add(self, norm: str) -> None:
+    def add(self, norm: str, site: str) -> None:
         if not norm or norm in self._exact:
             return
         self._exact.add(norm)
         tokens = set(norm.split())
         if len(tokens) >= NEAR_DUP_MIN_TOKENS:
             idx = len(self._titles)
-            self._titles.append(norm)
+            self._titles.append((norm, site))
             for tok in tokens:
                 self._by_token[tok].append(idx)
 
-    def match(self, norm: str) -> str | None:
+    def match(self, norm: str, site: str) -> str | None:
         """The stored headline this one duplicates, or None."""
         if norm in self._exact:
             return norm
@@ -224,7 +235,9 @@ class TitleIndex:
         for idx, n in shared.most_common(20):
             if n < 0.6 * len(tokens):
                 break
-            other = self._titles[idx]
+            other, other_site = self._titles[idx]
+            if other_site == site:
+                continue
             if difflib.SequenceMatcher(None, norm, other).ratio() >= NEAR_DUP_RATIO:
                 return other
         return None
@@ -527,12 +540,14 @@ def sync_sources(conn: psycopg.Connection, sources: list[Source]) -> dict[str, i
     return dict(rows)
 
 
-def recent_titles(conn: psycopg.Connection, days: int = TITLE_WINDOW_DAYS) -> list[str]:
+def recent_titles(conn: psycopg.Connection, days: int = TITLE_WINDOW_DAYS) -> list[tuple[str, str]]:
+    """(title_norm, site) of the articles collected in the last `days` days."""
     rows = conn.execute(
-        "SELECT title_norm FROM articles WHERE collected_at >= now() - make_interval(days => %s)",
+        "SELECT title_norm, url FROM articles"
+        " WHERE collected_at >= now() - make_interval(days => %s)",
         (days,),
     ).fetchall()
-    return [r[0] for r in rows]
+    return [(norm, site_of(url)) for norm, url in rows]
 
 
 def existing_urls(conn: psycopg.Connection, urls: list[str]) -> set[str]:
@@ -695,7 +710,7 @@ def collect(
                 else:
                     stats.topics_merged += add_topic(conn, it.title_norm, it.url, src.topic)
                 continue
-            match = titles.match(it.title_norm)
+            match = titles.match(it.title_norm, site_of(it.publisher_host))
             if match:
                 ts.dup_title += 1
                 if match in run_by_title:
@@ -706,7 +721,7 @@ def collect(
                     stats.dup_examples.append((it.title_norm, match))
                 continue
             run_by_url[it.url] = run_by_title[it.title_norm] = it
-            titles.add(it.title_norm)
+            titles.add(it.title_norm, site_of(it.publisher_host))
             new.append(it)
     log(f"feeds done: {len(new)} new articles to store")
 
