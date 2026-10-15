@@ -4,6 +4,12 @@ Live progress for agent work. The agent updates this after every step and pushes
 
 ## Summary
 
+**Run of 2026-10-15 (fourth): 1.1 done (branch `task/1.1-sources`, from `origin/main` at 97a159f, where 0.2 is merged). Stopping here.** `config/sources.yaml` lists 85 feeds across the 9 topics: 74 enabled, 11 disabled with the reason (dead, broken XML, redirect duplicate). Every enabled feed returned items on 2026-10-15. Each topic has 4–13 working free feeds; Cambodia has 14 enabled (10 English, 1 of them paywalled; 4 Khmer). `uv run python -m natalia.feeds` checks every feed and prints the 5 latest headlines per topic. Added `feedparser` and `pyyaml`; 21 tests pass offline. Only plain HTTP GETs to public feeds and homepages: no Gemini call, no accounts, no sudo, no money spent.
+
+**Human must:**
+1. **1.1:** review the feed list (the table under 1.1 below), especially the choices in "Open questions". Then review and merge `task/1.1-sources` and tick 1.1 in ROADMAP.
+2. The earlier steps below still stand (tick 0.2 and 1.6; the 0.2 deny-rule check; 1.2, 1.5, 1.7, 1.8, 1.9).
+
 **Run of 2026-10-15 (third): 0.2 done (branch `task/0.2-python-setup`, from `origin/main` at 2669e55, where 0.1 is merged). Stopping here.** `uv` project on Python 3.12 with the package in `natalia/` (flat layout) and a `natalia/llm.py` stub, the only place `google-genai` may be imported (task 1.7 fills it in). `pytest` and `ruff` are the only packages added (dev group); `uv run pytest` passes 5 tests and `ruff` is clean. `.claude/settings.json` denies `sudo`, push to main, force-push, `git merge`, `rm -rf`, reading `.env`, `prefect deployment run`, plus Modal, destructive `rclone` and Prefect flow-run resume, like cloud-ai-lab. 🧑 1.6 is done (the human's report, recorded below). No Gemini call, nothing installed system-wide, no accounts, no money spent.
 
 **Human must:**
@@ -208,3 +214,203 @@ $ git push -u origin task/0.2-python-setup
 - **Done:** `GEMINI_API_KEY` is in `.env`. The human verified it with a model-list request (`GET /v1beta/models`), which returned the model list including `gemini-2.5-flash`. That request lists models only; it generates nothing and uses no generation quota. The agent did not read `.env` or call the API.
 - **Next:** 1.7 uses the key (the agent picks the current Flash model then).
 - **Human must:** tick 1.6 in ROADMAP. Keep billing off the key's Google project.
+
+## 1.1 — Sources and feeds
+- **Branch:** `task/1.1-sources`
+- **State:** done, committed and pushed; waiting for the human's review and merge
+- **Done:** `config/sources.yaml` (85 feeds: name, topic, url, language, paywalled, enabled, note); `natalia/feeds.py` (load + validate the list, check each feed with one GET, print the 5 latest headlines per topic); `tests/test_feeds.py` (list is valid, every topic has ≥2 enabled free feeds, known paywalled sources are flagged, disabled feeds say why, checker parses RSS and never raises; no network). Runtime deps `feedparser` 6.0.14 and `pyyaml` 6.0.3.
+- **Next:** 1.2 (database) needs 🧑 `sudo`; 1.3 (collect) can start from this list.
+- **Human must:** review the list below and the open questions; merge.
+
+### Feed check results (2026-10-15, ~07:40 UTC)
+
+✅ works · ⚠️ works but no item in the last 14 days · ❌ broken/dead · ➖ responds but disabled (duplicate or wrong). Paywalled = headline + excerpt + link only. GN = via a Google News search feed (the source has no public RSS).
+
+| Topic | Source | Lang | Working? | Paywalled? | Enabled | Items | Note |
+|---|---|---|---|---|---|---|---|
+| economics | BBC News Business | en | ✅ | no | yes | 42 | |
+| economics | The Guardian Economics | en | ✅ | no | yes | 20 | |
+| economics | CNBC Economy | en | ✅ | no | yes | 30 | |
+| economics | NPR Economy | en | ✅ | no | yes | 10 | |
+| economics | Reuters Business (GN) | en | ✅ | no | yes | 97 | |
+| economics | Bloomberg Economics | en | ✅ | yes | yes | 20 | |
+| economics | Financial Times Global Economy | en | ✅ | yes | yes | 25 | |
+| economics | WSJ Economy | en | ✅ | yes | yes | 36 | |
+| economics | The Economist Finance & Economics | en | ✅ | yes | yes | 300 | metered |
+| world-politics | BBC News World | en | ✅ | no | yes | 29 | |
+| world-politics | Al Jazeera | en | ✅ | no | yes | 25 | all of Al Jazeera, not only politics |
+| world-politics | The Guardian World | en | ✅ | no | yes | 45 | |
+| world-politics | NPR World | en | ✅ | no | yes | 10 | |
+| world-politics | DW World | en | ✅ | no | yes | 13 | |
+| world-politics | France 24 | en | ✅ | no | yes | 24 | |
+| world-politics | Reuters World (GN) | en | ✅ | no | yes | 100 | |
+| world-politics | AP World (GN) | en | ✅ | no | yes | 100 | |
+| world-politics | Foreign Affairs | en | ✅ | yes | yes | 20 | metered |
+| technology | Ars Technica | en | ✅ | no | yes | 20 | |
+| technology | The Verge | en | ✅ | no | yes | 10 | |
+| technology | TechCrunch | en | ✅ | no | yes | 20 | |
+| technology | BBC News Technology | en | ✅ | no | yes | 21 | |
+| technology | Wired | en | ✅ | yes | yes | 50 | metered; many coupon posts |
+| technology | MIT Technology Review | en | ✅ | yes | yes | 10 | metered |
+| science | ScienceDaily | en | ✅ | no | yes | 60 | |
+| science | Quanta Magazine | en | ✅ | no | yes | 5 | `/quanta/feed/` (from the homepage) had 1 item from 2013; `/feed/` is current |
+| science | BBC News Science | en | ✅ | no | yes | 42 | |
+| science | The Guardian Science | en | ✅ | no | yes | 28 | |
+| science | Phys.org | en | ✅ | no | yes | 30 | |
+| science | NASA News Releases | en | ✅ | no | yes | 10 | |
+| science | Nature | en | ✅ | yes | yes | 75 | papers often paywalled |
+| science | Scientific American | en | ✅ | yes | yes | 50 | metered |
+| science | New Scientist | en | ✅ | yes | yes | 10 | metered |
+| sport | BBC Sport | en | ✅ | no | yes | 67 | |
+| sport | ESPN | en | ✅ | no | yes | 38 | |
+| sport | Sky Sports | en | ✅ | no | yes | 20 | |
+| sport | The Guardian Sport | en | ✅ | no | yes | 48 | |
+| sport | The Athletic | en | ✅ | yes | yes | 100 | |
+| crypto | CoinDesk | en | ✅ | no | yes | 25 | |
+| crypto | Cointelegraph | en | ✅ | no | yes | 30 | |
+| crypto | Decrypt | en | ✅ | no | yes | 35 | |
+| crypto | The Block | en | ✅ | no | yes | 19 | homepage 403s, feed works |
+| crypto | Bitcoin Magazine | en | ✅ | no | yes | 10 | |
+| crypto | Bloomberg Crypto | en | ✅ | yes | yes | 2 | |
+| markets | CNBC Markets | en | ✅ | no | yes | 30 | |
+| markets | Reuters Markets (GN) | en | ✅ | no | yes | 100 | |
+| markets | FXStreet News | en | ✅ | no | yes | 30 | forex |
+| markets | ForexLive | en | ✅ | no | yes | 25 | forex |
+| markets | Investing.com News | en | ✅ | no | yes | 10 | |
+| markets | MarketWatch Top Stories | en | ✅ | yes | yes | 10 | Dow Jones, metered |
+| markets | Bloomberg Markets | en | ✅ | yes | yes | 20 | |
+| markets | WSJ Markets | en | ✅ | yes | yes | 61 | |
+| markets | Financial Times Markets | en | ✅ | yes | yes | 25 | |
+| markets | Yahoo Finance | en | ❌ | no | no | 0 | HTTP 404 (3 URLs tried) |
+| cambodia | Khmer Times | en | ✅ | no | yes | 20 | |
+| cambodia | Phnom Penh Post | en | ✅ | no | yes | 10 | |
+| cambodia | CamboJA News | en | ✅ | no | yes | 10 | |
+| cambodia | The Cambodia Daily | en | ✅ | no | yes | 20 | irregular (latest was 09-08 on the first check) |
+| cambodia | Cambodia Investment Review | en | ✅ | no | yes | 10 | |
+| cambodia | VOD English | en | ⚠️ | no | yes | 10 | latest item 2026-08-09 |
+| cambodia | The Guardian Cambodia | en | ⚠️ | no | yes | 20 | tag feed, a few items a month (latest 09-29) |
+| cambodia | Reuters Cambodia (GN) | en | ✅ | no | yes | 100 | |
+| cambodia | Google News Cambodia | en | ✅ | no | yes | 100 | aggregator, any outlet |
+| cambodia | Nikkei Asia Cambodia (GN) | en | ✅ | yes | yes | 100 | |
+| cambodia | Post Khmer | km | ✅ | no | yes | 10 | |
+| cambodia | Kohsantepheap Daily | km | ✅ | no | yes | 1 | only 1 item per fetch |
+| cambodia | DAP News | km | ✅ | no | yes | 10 | |
+| cambodia | RFA Khmer | km | ✅ | no | yes | 27 | latest 10-11 |
+| cambodia | The Diplomat Cambodia | en | ⚠️ | no | no | 96 | latest item 2026-05-27 |
+| cambodia | VOA Khmer | km | ⚠️ | no | no | 20 | stopped 2025-03-31 |
+| cambodia | Cambodianess | en | ❌ | no | no | 0 | no feed (404 on /feed, /rss, /rss.xml) |
+| cambodia | Kiripost | en | ❌ | no | no | 0 | malformed XML |
+| cambodia | Fresh News English | en | ❌ | no | no | 0 | malformed XML |
+| cambodia | Fresh News Khmer | km | ❌ | no | no | 0 | HTTP 403 |
+| cambodia | Thmey Thmey | km | ❌ | no | no | 0 | no feed (404) |
+| cambodia | CamboJA News Khmer | km | ❌ | no | no | 0 | `/kh/feed/` and `/km/feed/` empty |
+| cambodia | Khmer Times Khmer | km | ➖ | no | no | 20 | `/kh/feed/` redirects to the English feed |
+| cambodia | Google News Khmer | km | ➖ | no | no | 38 | `hl=km` redirects to US English top stories |
+| general | BBC News Top Stories | en | ✅ | no | yes | 34 | |
+| general | NPR News | en | ✅ | no | yes | 10 | |
+| general | The Guardian International | en | ✅ | no | yes | 115 | includes lifestyle and reviews |
+| general | Sky News World | en | ✅ | no | yes | 8 | |
+| general | AP Top News (GN) | en | ✅ | no | yes | 100 | |
+| general | Reuters (GN) | en | ✅ | no | yes | 100 | |
+| general | Google News Top Stories | en | ✅ | no | yes | 38 | US edition |
+
+**Working free feeds per topic (enabled):** economics 5 · world-politics 8 · technology 4 · science 6 · sport 4 · crypto 5 · markets 5 · cambodia 13 · general 7.
+
+### Open questions for the human
+1. **Reuters and AP have no public RSS.** They come through Google News search feeds, whose links are `news.google.com/rss/articles/…` redirects. Task 1.3 must resolve them to the real URL before extracting text, and Reuters blocks non-browser clients (its homepage returned HTTP 401 here), so Reuters full text may not be fetchable. If that fails, Reuters/AP stay as headline + Google link only.
+2. **Metered paywalls:** besides the four decided ones, I marked The Economist, Foreign Affairs, Wired, MIT Technology Review, Nature, Scientific American, New Scientist, MarketWatch and Nikkei Asia as `paywalled: true` (headline + excerpt + link). Flip any you'd rather treat as free.
+3. **No Khmer Google News edition**, and Cambodianess, Thmey Thmey, Fresh News and CamboJA Khmer have no usable feed. Fresh News (403) and Kiripost (broken XML) might work through scraping their pages in 1.3; that's a scraping decision, not a feed one.
+4. **VOD English and The Guardian Cambodia** are kept enabled though quiet (⚠️). Cheap to keep; the collector deduplicates.
+
+<details><summary>Steps and output from this build</summary>
+
+**1. Branch from `origin/main`.** 0.2 was merged (PR #2).
+```console
+$ git fetch origin && git log --oneline -1 origin/main
+97a159f Merge pull request #2 from thovicheka/task/0.2-python-setup
+$ git switch -c task/1.1-sources origin/main
+Switched to a new branch 'task/1.1-sources'
+```
+**Result:** ✅
+
+**2. Dependencies.** `feedparser` (named in PLAN.md, used again in 1.3) and `pyyaml` for the config.
+```console
+$ uv add feedparser pyyaml
+ + feedparser==6.0.14
+ + feedparser-sgmllib==2.1.0
+ + pyyaml==6.0.3
+```
+**Result:** ✅
+
+**3. Find feed URLs.** A throwaway script fetched 33 homepages and printed their `<link rel="alternate" type="application/rss+xml">` tags (one GET each).
+```console
+https://www.khmertimeskh.com/ [200] -> ['https://www.khmertimeskh.com/feed/', ...]
+https://www.phnompenhpost.com/ [200] -> ['https://phnompenhpost.com/feed/', ...]
+https://cambodianess.com/ [200] -> []
+https://www.postkhmer.com/ [200] -> ['https://postkhmer.com/feed', ...]
+https://www.freshnewsasia.com/ ERROR HTTPError: HTTP Error 403: Forbidden
+https://www.quantamagazine.org/ [200] -> ['https://www.quantamagazine.org/quanta/feed/']
+https://apnews.com/ ERROR HTTPError: HTTP Error 403: Forbidden
+https://www.reuters.com/ ERROR HTTPError: HTTP Error 401: HTTP Forbidden
+(…25 more)
+```
+**Result:** ✅ Most Cambodian sites are WordPress with `/feed/`. AP and Reuters block plain clients and publish no RSS.
+
+**4. First check of 85 candidate feeds** (`uv run python -m natalia.feeds -n 0`): `78/85 feeds working`. Suspicious results: Quanta had 1 item from 2013; "Google News Khmer" and "Google News Top Stories" had identical counts and dates; "Khmer Times Khmer" matched "Khmer Times".
+**Result:** ⚠️ needed a closer look.
+
+**5. Closer look** (feed title, final URL after redirects, first items):
+```console
+https://news.google.com/rss?hl=km&gl=KH&ceid=KH:km
+  [200] final=https://news.google.com/rss?hl=en-US&gl=US&ceid=US:en items=38 title='Top stories - Google News'
+https://www.khmertimeskh.com/kh/feed/
+  [200] final=https://www.khmertimeskh.com/feed/ items=20 title='Khmer Times'
+https://api.quantamagazine.org/feed/
+  [200] final=https://www.quantamagazine.org/feed/ items=5 title='Quanta Magazine'
+https://www.rfa.org/arc/outboundfeeds/khmer/rss/
+  [200] items=27 title='ខ្មែរ' lang=km
+https://finance.yahoo.com/rss/topstories    ERROR HTTPError: HTTP Error 404: Not Found
+https://cambodianess.com/rss                ERROR HTTPError: HTTP Error 404: Not Found
+https://thmeythmey.com/rss                  ERROR HTTPError: HTTP Error 404: Not Found
+https://cambojanews.com/km/feed/
+  [200] items=0 title='Comments on:'
+```
+**Result:** ❌ → fixed. **Error:** wrong or duplicate feeds counted as working. **Cause:** Google News has no Khmer edition and silently redirects; Khmer Times' `/kh/feed/` redirects to the English feed; Quanta's advertised feed URL is stale. **Fix:** Quanta URL changed to `/feed/`; the two redirects and the 9 dead/broken feeds set `enabled: false` with a `note`; Google News feeds got a note about redirect links; MarketWatch marked paywalled.
+
+**6. Tests and lint.**
+```console
+$ uv run pytest -q
+21 passed in 0.26s
+$ uv run ruff check . ; uv run ruff format --check .
+All checks passed!
+12 files already formatted
+```
+**Result:** ✅
+
+**7. Final check, all feeds, with headlines** (`uv run python -m natalia.feeds --all`, exit 0: every enabled feed works). Table above. Headlines (trimmed to 2 topics):
+```console
+78/85 feeds working
+
+## crypto
+  10-15 07:23  [Cointelegraph] Bitcoin ETFs shed $261M as XRP funds buck weekly outflow trend
+  10-15 06:17  [CoinDesk] BlackRock's Fink names a U.S. recession trigger, sounds alarm over $40 trillion national debt
+  10-15 05:52  [Cointelegraph] South Korea plans cybersecurity overhaul after attacks hit banks, crypto firms
+  10-15 05:49  [Cointelegraph] Here’s what happened in crypto today
+  10-15 05:00  [Cointelegraph] Australia seeks feedback on crypto platform rules ahead of 2027 rollout
+
+## cambodia
+  10-15 07:40  [The Cambodia Daily] Cambodian unions criticise $2 rise in garment workers’ minimum wage
+  10-15 07:33  [Google News Cambodia] CITES reports minimal progress by Cambodia in controlling macaque exports — Mongabay - UA.NEWS
+  10-15 07:17  [Google News Cambodia] China’s Military Expansion in Southeast Asia Masks a More Complicated Reality - War on the Rocks
+  10-15 06:38  [DAP News] ស្ថានីយ៍ទូរទស្សន៍ Town Full HDTV ស្ថាប័ន FIGHT CLUBBING របស់អ៊ីតាលី រៀបចំព្រឹត្តិការណ៍កម្រិតអន្តរជាត
+  10-15 06:26  [Google News Cambodia] Viet Nam-Cambodia trade expo promotes bilateral economic cooperation - Nhan Dan Online
+```
+"78/85" counts the two disabled redirect duplicates as responding; 74/74 enabled feeds work.
+**Result:** ✅
+</details>
+
+**Noticed, not done (out of scope):**
+- Wired's feed is mostly coupon posts ("Lenovo Coupon Codes…") and The Guardian International mixes in reviews and lifestyle. Topic filtering (1.4) should drop these, or the feeds can be swapped for narrower ones.
+- The same story shows up in several topics (e.g. BBC "Anthropic flags revenue surge" in economics, world-politics and technology), because BBC repeats items across section feeds. Deduplication in 1.3 handles it.
+- Several feeds run many requests to `news.google.com` (10 GN feeds). Fine once a day; worth a polite delay in 1.3.
+- The 0.2 note says this kind of session started in cloud-ai-lab loads cloud-ai-lab's settings, not Natalia's deny rules. That was true again for this run.

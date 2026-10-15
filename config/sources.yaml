@@ -1,0 +1,107 @@
+# Natalia's news feeds, one entry per feed. Read by natalia/feeds.py (and the collector, task 1.3).
+#
+# Fields: name, topic (one of the 9 in docs/PLAN.md), url (RSS/Atom), language (en|km, default en),
+# paywalled (default false), enabled (default true), note (why disabled, or a caveat).
+#
+# paywalled: true -> headline + excerpt + link from the feed only; never fetch the article page.
+#   Hard paywalls (Bloomberg, FT, WSJ, The Athletic) plus metered ones (The Economist, Foreign Affairs,
+#   Wired, MIT Technology Review, Nature, Scientific American, New Scientist, MarketWatch, Nikkei Asia).
+# enabled: false -> checked on 2026-10-15 and dead or broken; kept so nobody re-adds it blindly.
+#
+# Check them all: uv run python -m natalia.feeds --all
+sources:
+  # economics
+  - {name: BBC News Business, topic: economics, url: "https://feeds.bbci.co.uk/news/business/rss.xml"}
+  - {name: The Guardian Economics, topic: economics, url: "https://www.theguardian.com/business/economics/rss"}
+  - {name: CNBC Economy, topic: economics, url: "https://www.cnbc.com/id/20910258/device/rss/rss.html"}
+  - {name: NPR Economy, topic: economics, url: "https://feeds.npr.org/1017/rss.xml"}
+  - {name: Reuters Business (Google News), topic: economics, url: "https://news.google.com/rss/search?q=site:reuters.com/business+when:1d&hl=en-US&gl=US&ceid=US:en", note: "Via Google News search (no public RSS); links are news.google.com redirects to resolve in 1.3"}
+  - {name: Bloomberg Economics, topic: economics, url: "https://feeds.bloomberg.com/economics/news.rss", paywalled: true}
+  - {name: Financial Times Global Economy, topic: economics, url: "https://www.ft.com/global-economy?format=rss", paywalled: true}
+  - {name: WSJ Economy, topic: economics, url: "https://feeds.content.dowjones.io/public/rss/socialeconomyfeed", paywalled: true}
+  - {name: The Economist Finance & Economics, topic: economics, url: "https://www.economist.com/finance-and-economics/rss.xml", paywalled: true}
+  # world-politics
+  - {name: BBC News World, topic: world-politics, url: "https://feeds.bbci.co.uk/news/world/rss.xml"}
+  - {name: Al Jazeera, topic: world-politics, url: "https://www.aljazeera.com/xml/rss/all.xml"}
+  - {name: The Guardian World, topic: world-politics, url: "https://www.theguardian.com/world/rss"}
+  - {name: NPR World, topic: world-politics, url: "https://feeds.npr.org/1004/rss.xml"}
+  - {name: DW World, topic: world-politics, url: "https://rss.dw.com/rdf/rss-en-world"}
+  - {name: France 24, topic: world-politics, url: "https://www.france24.com/en/rss"}
+  - {name: Reuters World (Google News), topic: world-politics, url: "https://news.google.com/rss/search?q=site:reuters.com/world+when:1d&hl=en-US&gl=US&ceid=US:en", note: "Via Google News search (no public RSS); links are news.google.com redirects to resolve in 1.3"}
+  - {name: AP World (Google News), topic: world-politics, url: "https://news.google.com/rss/search?q=site:apnews.com+world+when:1d&hl=en-US&gl=US&ceid=US:en", note: "Via Google News search (no public RSS); links are news.google.com redirects to resolve in 1.3"}
+  - {name: Foreign Affairs, topic: world-politics, url: "https://www.foreignaffairs.com/rss.xml", paywalled: true}
+  # technology
+  - {name: Ars Technica, topic: technology, url: "https://feeds.arstechnica.com/arstechnica/index"}
+  - {name: The Verge, topic: technology, url: "https://www.theverge.com/rss/index.xml"}
+  - {name: TechCrunch, topic: technology, url: "https://techcrunch.com/feed/"}
+  - {name: BBC News Technology, topic: technology, url: "https://feeds.bbci.co.uk/news/technology/rss.xml"}
+  - {name: Wired, topic: technology, url: "https://www.wired.com/feed/rss", paywalled: true}
+  - {name: MIT Technology Review, topic: technology, url: "https://www.technologyreview.com/feed/", paywalled: true}
+  # science
+  - {name: ScienceDaily, topic: science, url: "https://www.sciencedaily.com/rss/top/science.xml"}
+  - {name: Quanta Magazine, topic: science, url: "https://www.quantamagazine.org/feed/"}
+  - {name: BBC News Science, topic: science, url: "https://feeds.bbci.co.uk/news/science_and_environment/rss.xml"}
+  - {name: The Guardian Science, topic: science, url: "https://www.theguardian.com/science/rss"}
+  - {name: Phys.org, topic: science, url: "https://phys.org/rss-feed/"}
+  - {name: NASA News Releases, topic: science, url: "https://www.nasa.gov/news-release/feed/"}
+  - {name: Nature, topic: science, url: "https://www.nature.com/nature.rss", paywalled: true}
+  - {name: Scientific American, topic: science, url: "https://www.scientificamerican.com/platform/syndication/rss/", paywalled: true}
+  - {name: New Scientist, topic: science, url: "https://www.newscientist.com/feed/home/", paywalled: true}
+  # sport
+  - {name: BBC Sport, topic: sport, url: "https://feeds.bbci.co.uk/sport/rss.xml"}
+  - {name: ESPN, topic: sport, url: "https://www.espn.com/espn/rss/news"}
+  - {name: Sky Sports, topic: sport, url: "https://www.skysports.com/rss/12040"}
+  - {name: The Guardian Sport, topic: sport, url: "https://www.theguardian.com/uk/sport/rss"}
+  - {name: The Athletic, topic: sport, url: "https://www.nytimes.com/athletic/rss/news/", paywalled: true}
+  # crypto
+  - {name: CoinDesk, topic: crypto, url: "https://www.coindesk.com/arc/outboundfeeds/rss/"}
+  - {name: Cointelegraph, topic: crypto, url: "https://cointelegraph.com/rss"}
+  - {name: Decrypt, topic: crypto, url: "https://decrypt.co/feed"}
+  - {name: The Block, topic: crypto, url: "https://www.theblock.co/rss.xml"}
+  - {name: Bitcoin Magazine, topic: crypto, url: "https://bitcoinmagazine.com/.rss/full/"}
+  - {name: Bloomberg Crypto, topic: crypto, url: "https://feeds.bloomberg.com/crypto/news.rss", paywalled: true}
+  # markets
+  - {name: CNBC Markets, topic: markets, url: "https://www.cnbc.com/id/10000664/device/rss/rss.html"}
+  - {name: Yahoo Finance, topic: markets, url: "https://finance.yahoo.com/news/rssindex", enabled: false, note: "HTTP 404 on /news/rssindex, /rss/topstories and /news/rss (2026-10-15)"}
+  - {name: Reuters Markets (Google News), topic: markets, url: "https://news.google.com/rss/search?q=site:reuters.com/markets+when:1d&hl=en-US&gl=US&ceid=US:en", note: "Via Google News search (no public RSS); links are news.google.com redirects to resolve in 1.3"}
+  - {name: MarketWatch Top Stories, topic: markets, url: "https://feeds.content.dowjones.io/public/rss/mw_topstories", paywalled: true, note: "Dow Jones (WSJ's owner), metered paywall"}
+  - {name: FXStreet News, topic: markets, url: "https://www.fxstreet.com/rss/news"}
+  - {name: ForexLive, topic: markets, url: "https://www.forexlive.com/feed/news"}
+  - {name: Investing.com News, topic: markets, url: "https://www.investing.com/rss/news.rss"}
+  - {name: Bloomberg Markets, topic: markets, url: "https://feeds.bloomberg.com/markets/news.rss", paywalled: true}
+  - {name: WSJ Markets, topic: markets, url: "https://feeds.content.dowjones.io/public/rss/RSSMarketsMain", paywalled: true}
+  - {name: Financial Times Markets, topic: markets, url: "https://www.ft.com/markets?format=rss", paywalled: true}
+  # cambodia (English)
+  - {name: Khmer Times, topic: cambodia, url: "https://www.khmertimeskh.com/feed/"}
+  - {name: Phnom Penh Post, topic: cambodia, url: "https://phnompenhpost.com/feed/"}
+  - {name: CamboJA News, topic: cambodia, url: "https://cambojanews.com/feed/"}
+  - {name: Cambodianess, topic: cambodia, url: "https://cambodianess.com/feed", enabled: false, note: "No feed: HTTP 404 on /feed, /rss, /rss.xml; homepage advertises none (2026-10-15)"}
+  - {name: VOD English, topic: cambodia, url: "https://vodenglish.news/feed/", note: "Infrequent: latest item 2026-08-09 at check time"}
+  - {name: The Cambodia Daily, topic: cambodia, url: "https://english.cambodiadaily.com/feed/", note: "Irregular: latest item was 2026-09-08 on the first check, 2026-10-15 on the second"}
+  - {name: Kiripost, topic: cambodia, url: "https://kiripost.com/feed", enabled: false, note: "Feed is malformed XML (not well-formed, line 85); 0 items parsed (2026-10-15)"}
+  - {name: Cambodia Investment Review, topic: cambodia, url: "https://cambodiainvestmentreview.com/feed/"}
+  - {name: The Guardian Cambodia, topic: cambodia, url: "https://www.theguardian.com/world/cambodia/rss", note: "Country tag feed, a few items a month"}
+  - {name: The Diplomat Cambodia, topic: cambodia, url: "https://thediplomat.com/tag/cambodia/feed/", enabled: false, note: "Tag feed's latest item is 2026-05-27; not updated (2026-10-15)"}
+  - {name: Fresh News English, topic: cambodia, url: "https://en.freshnewsasia.com/index.php/en/?format=feed&type=rss", enabled: false, note: "Feed is malformed XML (mismatched tag, line 41); 0 items parsed (2026-10-15)"}
+  - {name: Reuters Cambodia (Google News), topic: cambodia, url: "https://news.google.com/rss/search?q=Cambodia+site:reuters.com&hl=en-US&gl=US&ceid=US:en", note: "Via Google News search (no public RSS); links are news.google.com redirects to resolve in 1.3"}
+  - {name: Nikkei Asia Cambodia (Google News), topic: cambodia, url: "https://news.google.com/rss/search?q=Cambodia+site:asia.nikkei.com&hl=en-US&gl=US&ceid=US:en", paywalled: true, note: "Via Google News search (no public RSS); links are news.google.com redirects to resolve in 1.3"}
+  - {name: Google News Cambodia, topic: cambodia, url: "https://news.google.com/rss/search?q=Cambodia+when:1d&hl=en-US&gl=US&ceid=US:en", note: "Via Google News search (no public RSS); links are news.google.com redirects to resolve in 1.3"}
+  # cambodia (Khmer)
+  - {name: Post Khmer, topic: cambodia, language: km, url: "https://postkhmer.com/feed"}
+  - {name: Kohsantepheap Daily, topic: cambodia, language: km, url: "https://kohsantepheapdaily.com.kh/feed", note: "Feed carries only 1 item at a time"}
+  - {name: DAP News, topic: cambodia, language: km, url: "https://dap-news.com/feed/"}
+  - {name: CamboJA News Khmer, topic: cambodia, language: km, url: "https://cambojanews.com/kh/feed/", enabled: false, note: "/kh/feed/ and /km/feed/ return an empty comments feed (2026-10-15)"}
+  - {name: Khmer Times Khmer, topic: cambodia, language: km, url: "https://www.khmertimeskh.com/kh/feed/", enabled: false, note: "/kh/feed/ redirects to the English feed (duplicate of Khmer Times) (2026-10-15)"}
+  - {name: Thmey Thmey, topic: cambodia, language: km, url: "https://thmeythmey.com/feed", enabled: false, note: "No feed: HTTP 404 on /feed, /rss, /rss.xml; homepage advertises none (2026-10-15)"}
+  - {name: RFA Khmer, topic: cambodia, language: km, url: "https://www.rfa.org/arc/outboundfeeds/khmer/rss/"}
+  - {name: VOA Khmer, topic: cambodia, language: km, url: "https://www.voacambodia.com/api/", enabled: false, note: "Last item 2025-03-31; VOA Khmer stopped publishing (2026-10-15)"}
+  - {name: Fresh News Khmer, topic: cambodia, language: km, url: "https://www.freshnewsasia.com/index.php/en/?format=feed&type=rss", enabled: false, note: "HTTP 403 to non-browser clients (2026-10-15)"}
+  - {name: Google News Khmer (Cambodia), topic: cambodia, language: km, url: "https://news.google.com/rss?hl=km&gl=KH&ceid=KH:km", enabled: false, note: "Google News has no Khmer edition: hl=km redirects to US English top stories (2026-10-15)"}
+  # general
+  - {name: BBC News Top Stories, topic: general, url: "https://feeds.bbci.co.uk/news/rss.xml"}
+  - {name: NPR News, topic: general, url: "https://feeds.npr.org/1001/rss.xml"}
+  - {name: The Guardian International, topic: general, url: "https://www.theguardian.com/international/rss"}
+  - {name: Sky News World, topic: general, url: "https://feeds.skynews.com/feeds/rss/world.xml"}
+  - {name: AP Top News (Google News), topic: general, url: "https://news.google.com/rss/search?q=site:apnews.com+when:1d&hl=en-US&gl=US&ceid=US:en", note: "Via Google News search (no public RSS); links are news.google.com redirects to resolve in 1.3"}
+  - {name: Reuters (Google News), topic: general, url: "https://news.google.com/rss/search?q=site:reuters.com+when:1d&hl=en-US&gl=US&ceid=US:en", note: "Via Google News search (no public RSS); links are news.google.com redirects to resolve in 1.3"}
+  - {name: Google News Top Stories, topic: general, url: "https://news.google.com/rss?hl=en-US&gl=US&ceid=US:en", note: "Via Google News search (no public RSS); links are news.google.com redirects to resolve in 1.3"}
