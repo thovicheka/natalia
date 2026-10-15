@@ -4,6 +4,13 @@ Live progress for agent work. The agent updates this after every step and pushes
 
 ## Summary
 
+**Run of 2026-10-15 (eighth): the human's 1.3 decisions applied (same branch `task/1.3-collect`). Stopping here.** (1) The 10 Google News feeds are disabled (`enabled: false` with a note): Natalia now respects robots.txt for feeds as well as pages. (2) The six sites that refuse full text stay headline-only; **Engadget** and **Rest of World** were added to technology after the 1.1-style check plus a full-text check. (3) The 99 stock-quote rows were deleted with the approved command: `99 deleted`. (4) `natalia/feeds.py` now uses the honest user agent `natalia/0.1 (personal news reader)`, shared with the collector. **61 tests pass. One collection: 66 feeds, 76 new articles (43 full text, 33 excerpt-only), 1,181 URL and 13 headline duplicates removed, 35 s, peak 91 MB.** Database: 1,840 articles (727 full text), no headline stored twice. Found during the run: the near-identical headline rule merged two different articles ("9 best movies…" into "9 best TV shows…"); recorded as an open question, not changed. No sudo, no accounts, no LLM calls, no money spent.
+
+**Human must:**
+1. **1.3:** review and merge `task/1.3-collect`, then tick 1.3 in ROADMAP.
+2. Decide on the near-identical headline fix (open question 3 under 1.3).
+3. Still open from earlier: the 0.2 deny-rule check; Phase 1 🧑 steps 1.5, 1.7, 1.8, 1.9.
+
 **Run of 2026-10-15 (seventh): 1.3 done (branch `task/1.3-collect`, from `origin/main` at 9162d25, where 1.2 is merged). Stopping here.** `natalia/collect.py` loads `config/sources.yaml` into `sources` (85 rows, 74 enabled), reads the 74 enabled feeds, drops entries older than 48 h, de-duplicates (canonical URL, then exact or near-identical headline, against the database and within the run), extracts article text with trafilatura where allowed, and stores the rest as headline + excerpt + link. It respects robots.txt for every page it fetches, uses its own user agent, 15 s timeouts, one request at a time per site, at most 4 sites at once, and stops asking a site that refuses twice. **First real run: 2,942 feed entries → 1,719 articles stored (654 full text, 1,065 excerpt-only), 248 URL duplicates and 60 headline duplicates removed, 915 too old; 22.9 min, peak 166 MB.** The second run stored no duplicates (0 repeated headlines in the table; its 112 new rows were new feed items). Fixes after run 1 cut the slow parts; runs 2–4 took 85–182 s and peaked at 69–128 MB. 60 tests pass. Also: `.idea/` added to `.gitignore`; 0.1 ticked in ROADMAP. No sudo, no accounts, no LLM calls, no money spent.
 
 **Human must:**
@@ -336,6 +343,8 @@ $ git push -u origin task/0.2-python-setup
 | general | Google News Top Stories | en | ✅ | no | yes | 38 | US edition |
 
 **Working free feeds per topic (enabled):** economics 5 · world-politics 8 · technology 4 · science 6 · sport 4 · crypto 5 · markets 5 · cambodia 13 · general 7.
+
+**Updated in 1.3 (2026-10-15, the human's decisions):** the 10 Google News feeds are disabled (news.google.com's robots.txt disallows them), and Engadget and Rest of World were added to technology. **Now 66 of 87 feeds enabled. Free feeds per topic:** economics 4 · world-politics 6 · technology 6 · science 6 · sport 4 · crypto 5 · markets 4 · cambodia 11 · general 4. Reuters and AP are gone (they only came through Google News).
 
 ### Open questions for the human
 1. **Reuters and AP have no public RSS.** They come through Google News search feeds, whose links are `news.google.com/rss/articles/…` redirects. Task 1.3 must resolve them to the real URL before extracting text, and Reuters blocks non-browser clients (its homepage returned HTTP 401 here), so Reuters full text may not be fetchable. If that fails, Reuters/AP stay as headline + Google link only.
@@ -736,9 +745,9 @@ MemoryPeak=59351040
 ## 1.3 — Collect and clean
 - **Branch:** `task/1.3-collect`
 - **State:** done, committed and pushed; waiting for the human's review and merge
-- **Done:** the collector, its tests, four real runs (numbers below). "Done when" holds: a second run stores no article twice, and a failing feed (Post Khmer, HTTP 500 in runs 3 and 4) doesn't stop the other 73.
+- **Done:** the collector, its tests, four real runs (numbers below). "Done when" holds: a second run stores no article twice, and a failing feed (Post Khmer, HTTP 500 in runs 3–5) doesn't stop the others. Then the human's decisions (see "Decisions applied" below): Google News feeds disabled, Engadget and Rest of World added, 99 junk rows deleted, honest user agent in `feeds.py`; run 5.
 - **Next:** 1.4 (filter by topic) adds rule-based topics to the stored articles.
-- **Human must:** review and merge; tick 1.3. Optional clean-up and open questions below.
+- **Human must:** review and merge; tick 1.3. Decide open question 3 (near-identical headlines).
 
 ### What's on the branch
 | File | What it is |
@@ -755,9 +764,9 @@ MemoryPeak=59351040
 - **Order:** free direct feeds first, then Google News, then paywalled feeds, so when one story is in several feeds, the stored copy is the one that can have full text.
 - **Duplicates:** (1) canonical URL: lowercase host, https, no fragment, no tracking parameters (`utm_*`, `fbclid`, `at_*`, `oc`…), sorted query, no trailing slash; (2) headline: lowercase, no punctuation, " - Publisher" suffix removed, compared exactly, and for headlines of 5+ words also by similarity ≥ 0.9 against articles of the last 3 days. A duplicate from another topic's feed adds its topic to the stored article (`topics` array; 253 articles have more than one).
 - **Full text only when allowed:** not a paywalled source, not a site on `EXCERPT_ONLY_DOMAINS` (Reuters, AP, the paywalled ones), not a Google News link, robots.txt allows the page (checked on every redirect hop), the page is HTML, has no `"isAccessibleForFree": false` marker, and gives ≥ 300 characters of text. Otherwise: headline + feed excerpt + link. No paywall is ever bypassed: paywalled pages are never requested.
-- **Google News links are not resolved.** news.google.com's robots.txt disallows `/rss/articles/` (the redirect) and the API that decodes new-style ids; current ids (`CBMi…AU_yqL…`) don't contain the URL. The collector decodes old-style ids offline (0 of 935 in this run were old-style); the rest keep the Google link, which opens the article in a browser. Their duplicates are caught by headline.
+- **Google News feeds are disabled** (the human's decision, run 5 on): their robots.txt disallows the feeds as well as the links. The collector's Google News handling stays and is tested, for any Google link a feed may carry. Before that: **Google News links were not resolved.** news.google.com's robots.txt disallows `/rss/articles/` (the redirect) and the API that decodes new-style ids; current ids (`CBMi…AU_yqL…`) don't contain the URL. The collector decodes old-style ids offline (0 of 935 in this run were old-style); the rest keep the Google link, which opens the article in a browser. Their duplicates are caught by headline.
 - **Not news:** headlines that are just a ticker or a "Stock Price & Latest News" page (Reuters' Google News search returns ~90 a run) are dropped.
-- **Polite:** user agent `natalia/0.1 (personal news reader)`, robots rules matched for `natalia`; 15 s timeout, 3 MB cap; one request at a time per site, ≥ 1 s apart (more if robots.txt sets `Crawl-delay`; above 30 s, no page fetches); at most 4 sites at once; a site that refuses (401/403/405/429) or times out twice is not asked again that run. Feeds themselves are fetched without the robots.txt check, as feed readers do (see open question 1).
+- **Polite:** user agent `natalia/0.1 (personal news reader)`, robots rules matched for `natalia`; 15 s timeout, 3 MB cap; one request at a time per site, ≥ 1 s apart (more if robots.txt sets `Crawl-delay`; above 30 s, no page fetches); at most 4 sites at once; a site that refuses (401/403/405/429) or times out twice is not asked again that run. Feeds themselves are fetched without the robots.txt check, as feed readers do; the human chose to disable the Google News feeds, whose robots.txt disallows them, so every enabled feed is also allowed by its site's robots.txt rules as far as checked.
 
 ### Real runs (2026-10-15)
 | Run | When (UTC) | Code | Stored | Full | Excerpt | Dup URL | Dup headline | Not news | Time | HTTP requests | Peak RSS |
@@ -960,25 +969,142 @@ $ git check-ignore -v .idea/
 **Result:** ✅
 </details>
 
-### Human must
-1. Review and merge `task/1.3-collect`; tick 1.3 in ROADMAP.
-2. **Optional:** delete the 99 stock-quote rows stored before the junk filter existed (nothing references them yet). Expected output: `99 deleted`.
-```bash
-cd ~/projects/natalia && uv run python -c "
+### Decisions applied (2026-10-15, the human's answers to the open questions)
+
+<details><summary>Steps and output</summary>
+
+**14. Disable the 10 Google News feeds.** `enabled: false` plus a note on each; the file header says why.
+```console
+$ grep -c "news.google.com" config/sources.yaml
+11            # 10 just disabled + Google News Khmer (disabled in 1.1)
+```
+Free feeds per topic, before → after: economics 5 → 4, world-politics 8 → 6, markets 5 → 4, cambodia 13 → 11, general 7 → 4; the others unchanged (also recorded under 1.1).
+**Result:** ✅
+
+**15. Technology sources that allow full text.** Each candidate: feed checked as in 1.1, then the collector's own `extract_text` on its 2 latest articles (robots.txt for `natalia`, paywall marker, text length).
+```console
+The Register    feed=200 items=50 latest=10-15 10:30 crawl-delay=None pages=['robots.txt disallows:0', 'robots.txt disallows:0']
+Engadget        feed=200 items=20 latest=10-15 10:34 crawl-delay=None pages=['full:2445', 'full:2034']
+IEEE Spectrum   feed=200 items=30 latest=10-15 10:00 crawl-delay=None pages=['full:2301', 'full:1538']
+Rest of World   feed=200 items=12 latest=10-15 10:00 crawl-delay=None pages=['full:6686', 'full:6050']
+ZDNET           feed=200 items=25 latest=10-14 13:59 crawl-delay=None pages=['full:3191', 'full:4095']
+The Next Web    feed FAIL HTTP 403
+Tom's Hardware  feed=200 items=50 latest=10-15 10:30 crawl-delay=None pages=['full:3588', 'full:2400']
+9to5Google      feed=200 items=100 latest=10-15 11:00 crawl-delay=None pages=['paywall marker on page:0', 'full:1494']
+```
+**Result:** ✅ Added **Engadget** (daily tech news, e.g. "Iowa, Nebraska and six other states are suing OpenAI…") and **Rest of World** (tech outside the West, incl. Asia; long articles). Not chosen: The Register (robots.txt disallows us), The Next Web (feed 403), 9to5Google (paywall marker on some pages), IEEE Spectrum (mixes in IEEE announcements), ZDNET and Tom's Hardware (mostly reviews and product news). Easy to add later.
+
+**16. User agent in `natalia/feeds.py`.** `USER_AGENT = "natalia/0.1 (personal news reader)"` is now defined in `feeds.py` and imported by the collector (one definition). New test `test_user_agent_is_honest_and_shared`: no "Mozilla", no "robots", same object in both modules.
+**Result:** ✅
+
+**17. Delete the 99 stock-quote rows** (approved by the human). First a look at the target:
+```console
+99 match; all end in Reuters: True
+sample: ['INBAF.PK - Reuters', '(ORK.HA) | Stock Price & Latest News - Reuters', 'CEVI.SG - Reuters', 'CJ2.SG - Reuters', '8750.MU - | Stock Price & Latest News - Reuters']
+embeddings refs: 0
+summaries refs: 0
+digest_items refs: 0
+```
+Then the exact command:
+```console
+$ cd ~/projects/natalia && uv run python -c "
 from natalia import db, collect
 with db.connect() as conn:
     ids = [i for i, t in conn.execute('SELECT id, title FROM articles').fetchall() if collect.is_junk_title(t, 'Reuters')]
     print(conn.execute('DELETE FROM articles WHERE id = ANY(%s)', (ids,)).rowcount, 'deleted')"
+99 deleted
+$ (check) junk left: 0 | total: 1764
 ```
+**Result:** ✅ 1,863 − 99 = 1,764.
+
+**18. Tests and lint.**
+```console
+$ uv run ruff check . ; uv run ruff format --check .
+All checks passed!
+17 files already formatted
+$ uv run pytest -q
+61 passed in 0.71s
+```
+**Result:** ✅
+
+**19. Run 5: one collection** with 66 enabled feeds:
+```console
+$ /usr/bin/time -v uv run python -m natalia.collect
+feeds done: 76 new articles to store
+  www.investing.com: 0/9 full text, 2 s
+  www.theguardian.com: 5/5 full text, 6 s
+  restofworld.org: 2/2 full text, 2 s
+  www.bbc.co.uk: 8/8 full text, 8 s
+  www.npr.org: 1/1 full text, 1 s
+  phys.org: 0/1 full text, 2 s
+  www.engadget.com: 20/20 full text, 21 s
+  (…7 more sites)
+topic           feeds fail entries   old dupURL dupTitle stored  full excerpt
+economics           8    0     484   369    113        0      2     0       2
+world-politics      7    0     159    21    124        3     11    11       0
+technology          8    0     163    30    108        2     23    22       1
+science             9    0     310   145    159        2      4     1       3
+sport               5    0     277    38    225        1     13     1      12
+crypto              6    0     121     9    110        0      2     1       1
+markets             8    0     211    36    157        4     14     0      14
+cambodia           11    1     138    78     59        0      1     1       0
+general             4    0     158    25    126        1      6     6       0
+TOTAL              66    1    2021   751   1181       13     76    43      33
+
+excerpt-only, why:
+     21  paywalled source
+      7  site refused earlier requests (not asked again)
+      4  HTTP 403
+      1  too little text on page
+
+not news, dropped (stock-quote pages): 0
+Google News links: 0, resolved offline: 0; topics added to already-stored articles: 11
+near-identical headlines dropped (new -> kept), first few:
+  'uk threatens to ban eritreans over returns policy'
+    -> 'uk threatens to ban eritreans over migrant return policy'
+  'connections sports edition today hints and answers for oct 14 2026 puz'
+    -> 'connections sports edition today hints and answers for oct 15 2026 puz'
+  'the 9 best movies to stream this month october 2026'
+    -> 'the 9 best tv shows to stream this month october 2026'
+feed errors:
+  Post Khmer: HTTP 500
+
+run time 35 s, 136 HTTP requests, peak memory (max RSS) 91 MB
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 0:35.28
+	Maximum resident set size (kbytes): 93252
+```
+**Result:** ✅ no Google News request; Engadget 20/20 and Rest of World 2/2 full text; NPR now serves full text with the honest user agent (it timed out before). 35 s instead of 85–182 s (no Google News waits). Post Khmer still HTTP 500. ❌ **Found:** two wrong headline merges (open question 3).
+
+**In the database after run 5:** 1,840 articles, 727 full text, 1,113 excerpt-only; 0 headlines stored twice; 87 sources, 66 enabled, 0 Google News enabled; Engadget 20 stored (20 full), Rest of World 2 (2 full).
+
+| Topic (articles can have several) | Articles | Full text | Excerpt-only |
+|---|---|---|---|
+| economics | 226 | 49 | 177 |
+| world-politics | 389 | 156 | 233 |
+| technology | 135 | 49 | 86 |
+| science | 161 | 43 | 118 |
+| sport | 265 | 135 | 130 |
+| crypto | 119 | 97 | 22 |
+| markets | 230 | 66 | 164 |
+| cambodia | 172 | 71 | 101 |
+| general | 417 | 134 | 283 |
+
+These totals still include items stored from Google News feeds in runs 1–4 (kept; nothing asked to delete them).
+</details>
+
+### Human must
+1. Review and merge `task/1.3-collect`; tick 1.3 in ROADMAP.
+2. ~~Optional: delete the 99 stock-quote rows.~~ Done (approved): `99 deleted`, step 17.
+3. Decide open question 3.
 
 ### Open questions for the human
-1. **Google News and robots.txt.** news.google.com's robots.txt disallows `/rss/search` (the 10 feeds) and `/rss/articles/` (their redirect links) for every user agent. The collector fetches the **feeds**, as feed readers do for subscriptions a person chose (Google's own Feedfetcher ignores robots.txt for that reason), but never follows the **links**. So Reuters/AP items keep a `news.google.com` link (fine in a browser) and no excerpt. If you'd rather obey robots.txt for the feeds too, set `enabled: false` on the 10 Google News feeds: Reuters and AP disappear; every topic still keeps ≥ 2 free feeds (economics 4, world-politics 6, markets 4, cambodia 11, general 4).
-2. **Sites that refuse full text** (Ars Technica, Phys.org, The Block, Investing.com, Sky News, NPR) stay excerpt-only. Keep them for headlines, or swap for sites that serve text?
-3. **Near-identical headlines** use similarity ≥ 0.9. It merged updates of the same story ("kills at least 10…" → "…at least 29…") and US/UK spellings ("defence"/"defense"), and found no wrong merges in the examples printed. Khmer headlines (few spaces) only merge on an exact match.
+1. ~~Google News and robots.txt.~~ Decided: the 10 Google News feeds are disabled.
+2. ~~Sites that refuse full text.~~ Decided: kept as headline-only; Engadget and Rest of World added for technology.
+3. **Near-identical headlines can merge different articles.** The similarity rule (≥ 0.9) merged real updates of one story ("kills at least 10…" → "…at least 29…", "defence"/"defense"), but in run 5 also two different articles: "The 9 best **movies** to stream this month" into "The 9 best **TV shows**…", and a daily puzzle-hints post for Oct 14 into Oct 15's. Both wrong pairs came from one source each (Wired; The Athletic): a series of similar posts, not one story. Proposed fix (not done, waiting for your OK): merge *near*-identical headlines only when they come from different sources (exact matches still merge always). Both wrong merges would have been kept apart, and the good merges in steps 6–7 were all across sources. Cost: a source that edits a headline and re-publishes under a new URL could be stored twice. Or keep it as is: the wrong merges so far are lifestyle and puzzle posts.
 
 **Noticed, not done (out of scope):**
-- `natalia/feeds.py` (1.1's checker) still sends the `Mozilla/5.0 (compatible; …)` user agent, which NPR stalls. A one-line change to the collector's user agent.
-- Google News feeds are slow on Google's side (18–48 s each, uncached), so each run spends ~2–3 min on them. Fine at 07:00; worth knowing for 1.9's timing.
-- Post Khmer returned HTTP 500 in runs 3 and 4 (worked in runs 1–2 and in 1.1). Probably temporary; 1.1's checker will show it.
+- ~~`natalia/feeds.py` still sends the `Mozilla/5.0` user agent.~~ Fixed (step 16).
+- ~~Google News feeds are slow on Google's side.~~ Moot: disabled.
+- Post Khmer returned HTTP 500 in runs 3, 4 and 5 (worked in runs 1–2 and in 1.1). If it lasts, `uv run python -m natalia.feeds` will show it; consider disabling it.
 - The first cold run took 22.9 min before the fixes. A cold run with today's code should be ~6–7 min (the Guardian queue, ~160 pages at ~2.4 s, is the longest), but that's an estimate: runs 2–4 had little new to fetch. The first 07:00 run in 1.9 will show.
 - Wired's coupon posts and The Guardian's reviews are stored like news; topic filtering (1.4) is the place to drop them.
