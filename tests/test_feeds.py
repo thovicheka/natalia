@@ -82,3 +82,12 @@ def test_check_feed_never_raises(monkeypatch):
     monkeypatch.setattr(feeds.urllib.request, "urlopen", boom)
     c = check_feed(Source(name="T", topic="sport", url="https://x.example/feed"))
     assert not c.working and "TimeoutError" in c.error
+
+
+def test_user_agent_is_honest_and_shared():
+    # NPR stalls a fake "Mozilla/5.0" user agent and any containing "robots" (task 1.3).
+    from natalia import collect
+
+    assert "mozilla" not in feeds.USER_AGENT.lower()
+    assert "robots" not in feeds.USER_AGENT.lower()
+    assert collect.USER_AGENT is feeds.USER_AGENT
