@@ -4,18 +4,20 @@ Live progress for agent work. The agent updates this after every step and pushes
 
 ## Summary
 
-**Run of 2026-10-15: 0.1 done (branch `task/0.1-project-setup`, from `origin/main` at 2dca67b). Stopping here.** `docs/PLAN.md` is clean Markdown (wording unchanged). `CLAUDE.md` has the cloud-ai-lab hard rules adapted to Natalia, plus two new ones: leave cloud-ai-lab alone, and message only the human. `docs/ROADMAP.md` turns the plan's 5 build phases into tasks 1.1–5.5, with the agreed decisions and a memory budget. `.env.example` added; `.gitignore` already covered `.env` and `.venv`. Nothing installed, no accounts created, no paid API called, no money spent.
+**Run of 2026-10-15 (second): decision change on 0.1, before merge (same branch `task/0.1-project-setup`). Stopping here.** The LLM is now **Google Gemini Flash on the free tier**, through the official `google-genai` SDK, key `GEMINI_API_KEY`, behind one thin wrapper `natalia/llm.py` so the provider can be swapped later. CLAUDE.md, ROADMAP.md, PLAN.md and `.env.example` were updated. New rules: never send private data to the LLM (the free tier may use prompts to improve Google's models; news is fine), and paywalled sources (Bloomberg, FT, WSJ, The Athletic) are headline + excerpt + link only, with free sources (Reuters, AP, BBC…) for full detail. Embeddings stay local on CPU. `docs/TASK-TEMPLATE.md` added. Nothing installed, no accounts created, no API called, no money spent.
 
 **Human must:** review and merge `task/0.1-project-setup`. Then the 🧑 steps for Phase 1, in the order the tasks need them:
-1. **1.1:** review the feed list the agent writes, and decide how to handle paywalled sources (Bloomberg, FT, WSJ, The Athletic): headline + excerpt + link only, or drop them.
+1. **1.1:** review the feed list the agent writes (paywalled sources are already decided: headline + excerpt + link only).
 2. **1.2:** install PostgreSQL 16 + pgvector (`sudo apt install postgresql postgresql-16-pgvector`), run the role/database commands the agent writes, and put `DATABASE_URL` in `.env`.
 3. **1.5:** pick the embedding option from the agent's measurements. An API account is needed only if the local model fails.
-4. **1.6:** Anthropic account at console.anthropic.com, **set a monthly spend limit**, create a key, add `ANTHROPIC_API_KEY` to `.env`.
-5. **1.7:** approve and run one real digest (the agent gives the command and the cost estimate).
+4. **1.6:** sign in at aistudio.google.com, create an API key, add `GEMINI_API_KEY` to `.env`. Free tier: no paid account, no billing, no spend limit. Don't attach billing to the key's project.
+5. **1.7:** approve and run one real digest (the agent gives the command and the expected request count).
 6. **1.8:** create a **new** bot with @BotFather (not the lab's alert bot), add `TELEGRAM_BOT_TOKEN` and `TELEGRAM_OWNER_CHAT_ID` to `.env`, and send the bot `/start`.
-7. **1.9:** register the `natalia-daily` deployment and turn on its 07:00 Asia/Phnom_Penh schedule (it spends money daily).
+7. **1.9:** register the `natalia-daily` deployment and turn on its 07:00 Asia/Phnom_Penh schedule (it calls Gemini every day).
 
 `.env` setup, once: `cp .env.example .env && chmod 600 .env`, then fill in the values as each step above produces them.
+
+*(Superseded by the run above: the LLM was Anthropic in this first run.)* **Run of 2026-10-15 (first): 0.1 done (branch `task/0.1-project-setup`, from `origin/main` at 2dca67b). Stopping here.** `docs/PLAN.md` is clean Markdown (wording unchanged). `CLAUDE.md` has the cloud-ai-lab hard rules adapted to Natalia, plus two new ones: leave cloud-ai-lab alone, and message only the human. `docs/ROADMAP.md` turns the plan's 5 build phases into tasks 1.1–5.5, with the agreed decisions and a memory budget. `.env.example` added; `.gitignore` already covered `.env` and `.venv`. Nothing installed, no accounts created, no paid API called, no money spent.
 
 ---
 
@@ -33,7 +35,7 @@ Live progress for agent work. The agent updates this after every step and pushes
 ## 0.1 — Project setup
 - **Branch:** `task/0.1-project-setup`
 - **State:** done, committed and pushed; waiting for the human's review and merge
-- **Done:** `docs/PLAN.md` restored as Markdown; `CLAUDE.md`, `docs/ROADMAP.md`, `docs/STATUS.md`, `.env.example` written; `.gitignore` checked.
+- **Done:** `docs/PLAN.md` restored as Markdown; `CLAUDE.md`, `docs/ROADMAP.md`, `docs/STATUS.md`, `docs/TASK-TEMPLATE.md`, `.env.example` written; `.gitignore` checked. Decision change applied before merge: LLM is Gemini Flash (free tier), not Anthropic.
 - **Next:** 0.2 (Python project and agent guardrails), then Phase 1.
 - **Human must:** review and merge. Tick 0.1 in ROADMAP once merged.
 
@@ -96,9 +98,23 @@ To github.com:thovicheka/natalia.git
 branch 'task/0.1-project-setup' set up to track 'origin/task/0.1-project-setup'.
 ```
 **Result:** ✅
+
+**6. Decision change: Gemini instead of Anthropic.** Edited CLAUDE.md (hard rule 4, new rule 10 on private data, conventions for the LLM wrapper, paywalls and embeddings), ROADMAP.md (decisions table, a privacy-and-limits note, tasks 1.1, 1.3, 1.6, 1.7, 1.9, 2.1, 2.3, 3.2, 5.3), PLAN.md (paywall note under sources; tech-stack LLM and embeddings lines), `.env.example` (`GEMINI_API_KEY` replaces `ANTHROPIC_API_KEY`). Added `docs/TASK-TEMPLATE.md`. Check for leftovers:
+```console
+$ grep -rn -i anthropic CLAUDE.md docs/ROADMAP.md docs/PLAN.md .env.example docs/TASK-TEMPLATE.md
+(no output)
+$ git commit -m "Switch LLM to Gemini free tier; paywall rule; task template"
+$ git log --oneline -1
+0249f53 Switch LLM to Gemini free tier; paywall rule; task template
+$ git push
+   b91b54b..0249f53  task/0.1-project-setup -> task/0.1-project-setup
+```
+**Result:** ✅
 </details>
 
 **Noticed, not done (out of scope):**
 - The lab worker's 2 flow slots and `MemoryMax=900M` are shared with lab flows. A paused lab GPU approval at 07:00 could delay the digest, and a heavy embedding step could hit the memory cap. Both are flagged in ROADMAP 1.5 and 1.9; changing the worker is the lab's business, not Natalia's.
-- Several PLAN.md sources are paywalled (Bloomberg, FT, WSJ, The Athletic), so "full detail" isn't possible for them. That's the 🧑 decision in 1.1.
+- ~~Several PLAN.md sources are paywalled, so "full detail" isn't possible for them.~~ Decided: headline + excerpt + link only.
+- PLAN.md's tech stack still says "Scheduling: GitHub Actions or cron", but the decision is the lab's Prefect. Left as is, since the plan's wording is yours; worth a one-line edit.
+- What family and friends type to the bot goes to Gemini's free tier, which may use it to improve Google's models. ROADMAP 2.1 and 5.3 add a notice on `/start` and the chat page; if that's not enough, a paid Gemini tier (which doesn't train on prompts) is the alternative.
 - The repo has no `.claude/settings.json` deny rules yet; that's task 0.2.
