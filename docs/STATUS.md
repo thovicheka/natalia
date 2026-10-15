@@ -4,6 +4,13 @@ Live progress for agent work. The agent updates this after every step and pushes
 
 ## Summary
 
+**Run of 2026-10-15 (ninth): 1.3 headline fix (same branch `task/1.3-collect`). Stopping here.** Near-identical headlines now merge only across different sites (the article's host without `www.`); exact matches always merge. Tests added for the two real wrong merges (Wired movies/TV shows, The Athletic Oct 14/15 puzzle hints: same site → kept apart) and a real cross-source pair (BBC/Guardian Eritreans story → merged). **67 tests pass.** One collection (run 6): 66 feeds, 23 new articles (5 full text, 18 excerpt-only), 22 s, peak 105 MB; **both wrongly dropped articles are restored** (still in their feeds), the cross-source pair still merges, no headline stored twice. Database: 1,863 articles, 732 full text. Also: the 0.2 check is rewritten so it can't expose `.env` (see 0.2). No sudo, no accounts, no LLM calls, no money spent.
+
+**Human must:**
+1. **1.3:** review and merge `task/1.3-collect`, then tick 1.3 in ROADMAP.
+2. **0.2:** the deny-rule check under 0.2 (~2 minutes), then tick nothing new: 0.2 is already ticked.
+3. Still open: Phase 1 🧑 steps 1.5, 1.7, 1.8, 1.9.
+
 **Run of 2026-10-15 (eighth): the human's 1.3 decisions applied (same branch `task/1.3-collect`). Stopping here.** (1) The 10 Google News feeds are disabled (`enabled: false` with a note): Natalia now respects robots.txt for feeds as well as pages. (2) The six sites that refuse full text stay headline-only; **Engadget** and **Rest of World** were added to technology after the 1.1-style check plus a full-text check. (3) The 99 stock-quote rows were deleted with the approved command: `99 deleted`. (4) `natalia/feeds.py` now uses the honest user agent `natalia/0.1 (personal news reader)`, shared with the collector. **61 tests pass. One collection: 66 feeds, 76 new articles (43 full text, 33 excerpt-only), 1,181 URL and 13 headline duplicates removed, 35 s, peak 91 MB.** Database: 1,840 articles (727 full text), no headline stored twice. Found during the run: the near-identical headline rule merged two different articles ("9 best movies…" into "9 best TV shows…"); recorded as an open question, not changed. No sudo, no accounts, no LLM calls, no money spent.
 
 **Human must:**
@@ -165,14 +172,20 @@ $ git push
 - **State:** done, merged to `main` (PR #2, 97a159f); the deny-rule check is still the human's
 - **Done:** `uv` project (Python 3.12, `.python-version`, `uv.lock`); package `natalia/` with `__init__.py` and a `llm.py` stub (`generate()` raises `NotImplementedError` until 1.7; no SDK yet); dev group `pytest` + `ruff` (lint rules E, F, W, I, B, UP; line length 100); `tests/` with 5 passing tests; `.claude/settings.json` deny rules.
 - **Next:** Phase 1, task 1.1 (sources and feeds).
-- **Human must:** run the denied-command check below (2 minutes, free), then review and merge.
+- **Human must:** run the denied-command check below (2 minutes, free). Merged already.
 
-**Check that a denied command is blocked.** This agent session was started in `~/projects/cloud-ai-lab`, so Claude Code loaded that repo's settings, not Natalia's; a block seen here would prove nothing about Natalia's file. Run it from a session started in Natalia:
+**Check that a denied command is blocked** (still open; ROADMAP 0.2's "done when"). The deny rules in `.claude/settings.json` are only loaded by a Claude Code session *started in* `~/projects/natalia`. Every agent run so far (0.2 through 1.3) was started in `~/projects/cloud-ai-lab`, so it ran under cloud-ai-lab's rules, and nobody has yet seen Natalia's rules block anything. A test (`test_settings_deny_rules`) checks the file's content, not that Claude Code applies it.
+
+Run, in your own terminal (free: a Claude Code session, no Gemini, nothing on the server changes):
 ```bash
 cd ~/projects/natalia && claude
-# then ask it:  run `git merge --help`  and  read the file .env
 ```
-Expected: both are refused with a permission-denied message (rules `Bash(git merge:*)` and `Read(./.env)`). Also check `/permissions` lists the deny rules from `.claude/settings.json`.
+Then, inside that session:
+1. Type `/permissions` and check the **Deny** list shows Natalia's rules, e.g. `Bash(git merge:*)`, `Bash(sudo:*)`, `Read(./.env)`, `Bash(*prefect deployment run*)`.
+2. Ask it: ``run `git merge --help` `` → expected: refused (permission denied by `Bash(git merge:*)`), not a help page.
+3. Optionally ask: ``run `sudo -n true` `` → expected: refused by `Bash(sudo:*)`.
+
+Don't test the `.env` rule by asking it to read `.env` (the earlier version of this check said to): if the rule didn't apply, your keys would land in the conversation. Seeing `Read(./.env)` in the `/permissions` Deny list is enough. Then tell the agent the result, or tick nothing: 0.2 is already ticked in ROADMAP, this only confirms it. To avoid the problem from now on, start Natalia's agent sessions in `~/projects/natalia`.
 
 <details><summary>Steps and output from this build</summary>
 
@@ -747,7 +760,7 @@ MemoryPeak=59351040
 - **State:** done, committed and pushed; waiting for the human's review and merge
 - **Done:** the collector, its tests, four real runs (numbers below). "Done when" holds: a second run stores no article twice, and a failing feed (Post Khmer, HTTP 500 in runs 3–5) doesn't stop the others. Then the human's decisions (see "Decisions applied" below): Google News feeds disabled, Engadget and Rest of World added, 99 junk rows deleted, honest user agent in `feeds.py`; run 5.
 - **Next:** 1.4 (filter by topic) adds rule-based topics to the stored articles.
-- **Human must:** review and merge; tick 1.3. Decide open question 3 (near-identical headlines).
+- **Human must:** review and merge; tick 1.3.
 
 ### What's on the branch
 | File | What it is |
@@ -1092,15 +1105,82 @@ run time 35 s, 136 HTTP requests, peak memory (max RSS) 91 MB
 These totals still include items stored from Google News feeds in runs 1–4 (kept; nothing asked to delete them).
 </details>
 
+### Headline fix (2026-10-15, the human's decision on open question 3)
+
+<details><summary>Steps and output</summary>
+
+**20. The fix.** `TitleIndex` stores each headline with its site (`site_of`: the host without `www.`; for stored rows, from `articles.url`). An exact match merges whatever the site; a near-identical one (similarity ≥ 0.9) only when the sites differ. "Site", not "feed": two feeds of one site (e.g. The Guardian's World and Sport) count as one source, so a site's series posts stay apart however they arrive.
+**Result:** ✅
+
+**21. Tests and lint.** New: Wired and The Athletic pairs (real headlines from run 5) are kept apart, and each test first asserts the pair is similar enough (≥ 0.9) that the old rule merged it; the BBC/Guardian Eritreans pair (run 1) still merges; exact headlines merge even from one site; `site_of`; and a whole run where one feed's two near-identical posts are both stored.
+```console
+$ uv run ruff check . ; uv run ruff format --check .
+All checks passed!
+17 files already formatted
+$ uv run pytest -q
+67 passed in 0.84s
+```
+**Result:** ✅
+
+**22. Run 6: one collection.** The two wrongly dropped articles were still in their feeds (Wired's from 2026-10-13 18:49 UTC, ~41 h old, inside the 48 h window):
+```console
+Wired [('The 9 Best Movies to Stream This Month (October 2026)', 'Tue, 13 Oct 2026 18:49')]
+The Athletic [('Connections: Sports Edition today: Hints and answers for Oct. 15, 2026', 'Thu, 15 Oct 2026 04:00'), ('Connections: Sports Edition today: Hints and answers for Oct. 14, 2026', 'Wed, 14 Oct 2026 04:00')]
+$ /usr/bin/time -v uv run python -m natalia.collect
+feeds done: 23 new articles to store
+  www.investing.com: 0/9 full text, 2 s
+  phys.org: 0/1 full text, 2 s
+  www.espn.com: 2/2 full text, 3 s
+  techcrunch.com: 1/1 full text, 1 s
+  www.skysports.com: 2/3 full text, 7 s
+topic           feeds fail entries   old dupURL dupTitle stored  full excerpt
+economics           8    0     484   370    114        0      0     0       0
+world-politics      7    0     159    21    135        3      0     0       0
+technology          8    0     163    30    130        1      2     1       1
+science             9    0     310   146    161        2      1     0       1
+sport               5    0     279    38    233        0      8     4       4
+crypto              6    0     121     9    112        0      0     0       0
+markets             8    0     211    36    157        6     12     0      12
+cambodia           11    1     138    78     60        0      0     0       0
+general             4    0     158    25    132        1      0     0       0
+TOTAL              66    1    2023   753   1234       13     23     5      18
+
+excerpt-only, why:
+      7  site refused earlier requests (not asked again)
+      7  paywalled source
+      3  HTTP 403
+      1  too little text on page
+
+near-identical headlines dropped (new -> kept), first few:
+  'uk threatens to ban eritreans over returns policy'
+    -> 'uk threatens to ban eritreans over migrant return policy'
+feed errors:
+  Post Khmer: HTTP 500
+
+run time 22 s, 89 HTTP requests, peak memory (max RSS) 104 MB
+	Maximum resident set size (kbytes): 106980
+```
+Check in the database:
+```console
+('The 9 Best TV Shows to Stream This Month (October 2026)', 'Wired', False, 10:42:32)
+('The 9 Best Movies to Stream This Month (October 2026)', 'Wired', False, 11:23:43)
+('Connections: Sports Edition today: Hints and answers for Oct. 15, 2026, puzzle No. 752', 'The Athletic', False, 10:42:32)
+('Connections: Sports Edition today: Hints and answers for Oct. 14, 2026, puzzle No. 751', 'The Athletic', False, 11:23:43)
+dup title_norm: 0 | total: (1863, 732)
+```
+(columns: title, source, has full text, collected at UTC)
+**Result:** ✅ both restored, as headline + excerpt + link (Wired and The Athletic are paywalled sources); the cross-source pair still merges; no headline stored twice. Database: 1,863 articles, 732 with full text. Post Khmer still HTTP 500 (4th run in a row).
+</details>
+
 ### Human must
 1. Review and merge `task/1.3-collect`; tick 1.3 in ROADMAP.
 2. ~~Optional: delete the 99 stock-quote rows.~~ Done (approved): `99 deleted`, step 17.
-3. Decide open question 3.
+3. ~~Decide open question 3.~~ Decided: fixed (steps 20–22).
 
 ### Open questions for the human
 1. ~~Google News and robots.txt.~~ Decided: the 10 Google News feeds are disabled.
 2. ~~Sites that refuse full text.~~ Decided: kept as headline-only; Engadget and Rest of World added for technology.
-3. **Near-identical headlines can merge different articles.** The similarity rule (≥ 0.9) merged real updates of one story ("kills at least 10…" → "…at least 29…", "defence"/"defense"), but in run 5 also two different articles: "The 9 best **movies** to stream this month" into "The 9 best **TV shows**…", and a daily puzzle-hints post for Oct 14 into Oct 15's. Both wrong pairs came from one source each (Wired; The Athletic): a series of similar posts, not one story. Proposed fix (not done, waiting for your OK): merge *near*-identical headlines only when they come from different sources (exact matches still merge always). Both wrong merges would have been kept apart, and the good merges in steps 6–7 were all across sources. Cost: a source that edits a headline and re-publishes under a new URL could be stored twice. Or keep it as is: the wrong merges so far are lifestyle and puzzle posts.
+3. ~~**Near-identical headlines can merge different articles.**~~ Decided (the human): merge near-identical headlines only across sites; done in steps 20–22. The question was: The similarity rule (≥ 0.9) merged real updates of one story ("kills at least 10…" → "…at least 29…", "defence"/"defense"), but in run 5 also two different articles: "The 9 best **movies** to stream this month" into "The 9 best **TV shows**…", and a daily puzzle-hints post for Oct 14 into Oct 15's. Both wrong pairs came from one source each (Wired; The Athletic): a series of similar posts, not one story. Proposed fix (not done, waiting for your OK): merge *near*-identical headlines only when they come from different sources (exact matches still merge always). Both wrong merges would have been kept apart, and the good merges in steps 6–7 were all across sources. Cost: a source that edits a headline and re-publishes under a new URL could be stored twice. Or keep it as is: the wrong merges so far are lifestyle and puzzle posts.
 
 **Noticed, not done (out of scope):**
 - ~~`natalia/feeds.py` still sends the `Mozilla/5.0` user agent.~~ Fixed (step 16).
