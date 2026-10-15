@@ -50,9 +50,10 @@ import psycopg
 from natalia import db
 from natalia.feeds import SOURCES_FILE, TOPICS, Source, load_sources
 
-# No "Mozilla/5.0": it names what we are, and Akamai-hosted sites (NPR) stall a client that
-# claims to be a browser but isn't one (measured 2026-10-15: 40 s timeout vs 0.0 s).
-USER_AGENT = "natalia/0.1 (personal news reader; respects robots.txt)"
+# Names what we are, without "Mozilla/5.0". NPR (Akamai) stalls until timeout both a fake
+# "Mozilla/5.0 (compatible; …)" UA and any UA containing "robots"; this one answers in 0.1 s
+# (measured 2026-10-15).
+USER_AGENT = "natalia/0.1 (personal news reader)"
 ROBOTS_AGENT = "natalia"  # the token robots.txt rules are matched against
 TIMEOUT_S = 15
 MAX_BYTES = 3_000_000
