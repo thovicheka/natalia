@@ -937,7 +937,7 @@ run time 182 s, 87 HTTP requests, peak memory (max RSS) 86 MB
 ```console
 $ uv run ruff check . ; uv run ruff format --check .
 All checks passed!
-19 files already formatted
+17 files already formatted
 $ uv run pytest -q
 60 passed in 0.84s
 ```
@@ -972,7 +972,7 @@ with db.connect() as conn:
 ```
 
 ### Open questions for the human
-1. **Google News and robots.txt.** news.google.com's robots.txt disallows `/rss/search` (the 10 feeds) and `/rss/articles/` (their redirect links) for every user agent. The collector fetches the **feeds**, as feed readers do for subscriptions a person chose (Google's own Feedfetcher ignores robots.txt for that reason), but never follows the **links**. So Reuters/AP items keep a `news.google.com` link (fine in a browser) and no excerpt. If you'd rather obey robots.txt for the feeds too, set `enabled: false` on the 10 Google News feeds: Reuters and AP disappear, and every topic still has ≥ 2 free feeds except world-politics and general, which keep 6 and 5.
+1. **Google News and robots.txt.** news.google.com's robots.txt disallows `/rss/search` (the 10 feeds) and `/rss/articles/` (their redirect links) for every user agent. The collector fetches the **feeds**, as feed readers do for subscriptions a person chose (Google's own Feedfetcher ignores robots.txt for that reason), but never follows the **links**. So Reuters/AP items keep a `news.google.com` link (fine in a browser) and no excerpt. If you'd rather obey robots.txt for the feeds too, set `enabled: false` on the 10 Google News feeds: Reuters and AP disappear; every topic still keeps ≥ 2 free feeds (economics 4, world-politics 6, markets 4, cambodia 11, general 4).
 2. **Sites that refuse full text** (Ars Technica, Phys.org, The Block, Investing.com, Sky News, NPR) stay excerpt-only. Keep them for headlines, or swap for sites that serve text?
 3. **Near-identical headlines** use similarity ≥ 0.9. It merged updates of the same story ("kills at least 10…" → "…at least 29…") and US/UK spellings ("defence"/"defense"), and found no wrong merges in the examples printed. Khmer headlines (few spaces) only merge on an exact match.
 
