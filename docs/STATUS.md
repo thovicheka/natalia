@@ -4,6 +4,14 @@ Live progress for agent work. The agent updates this after every step and pushes
 
 ## Summary
 
+**Run of 2026-10-15 (seventh): 1.3 done (branch `task/1.3-collect`, from `origin/main` at 9162d25, where 1.2 is merged). Stopping here.** `natalia/collect.py` loads `config/sources.yaml` into `sources` (85 rows, 74 enabled), reads the 74 enabled feeds, drops entries older than 48 h, de-duplicates (canonical URL, then exact or near-identical headline, against the database and within the run), extracts article text with trafilatura where allowed, and stores the rest as headline + excerpt + link. It respects robots.txt for every page it fetches, uses its own user agent, 15 s timeouts, one request at a time per site, at most 4 sites at once, and stops asking a site that refuses twice. **First real run: 2,942 feed entries → 1,719 articles stored (654 full text, 1,065 excerpt-only), 248 URL duplicates and 60 headline duplicates removed, 915 too old; 22.9 min, peak 166 MB.** The second run stored no duplicates (0 repeated headlines in the table; its 112 new rows were new feed items). Fixes after run 1 cut the slow parts; runs 2–4 took 85–182 s and peaked at 69–128 MB. 60 tests pass. Also: `.idea/` added to `.gitignore`; 0.1 ticked in ROADMAP. No sudo, no accounts, no LLM calls, no money spent.
+
+**Human must:**
+1. **1.3:** review and merge `task/1.3-collect`, then tick 1.3 in ROADMAP.
+2. Optional: delete the 99 stock-quote rows the first runs stored before the junk filter existed (command under 1.3, "Human must"). The agent didn't, since it's a delete on the real database.
+3. Answer the 1.3 open questions (Google News robots.txt; sites that refuse full text).
+4. Still open from earlier: the 0.2 deny-rule check; Phase 1 🧑 steps 1.5, 1.7, 1.8, 1.9.
+
 **Run of 2026-10-15 (sixth): 1.2 done (branch `task/1.2-database`). Stopping here.** The human installed PostgreSQL 16.15 + pgvector 0.6.0 with the commands below and put `DATABASE_URL` in `.env`; their settings check matched (`jit|off`, `listen_addresses|localhost`, `max_connections|20`, `shared_buffers|8192`). Migration `0001_initial_schema` applied on the real database; a second run applied nothing. **34 tests pass, 0 skipped**, including the 3 against the real database; they left no rows behind. PostgreSQL uses **52.8 MB idle (peak 56.6 MB** during the migration and tests), well under the 250 MB target. Both schema choices confirmed by the human (topics as a list; summaries per article + language). Ticked 0.2, 1.1, 1.2 and 1.6 in ROADMAP. No sudo, no Gemini call, no money spent.
 
 **Human must:**
@@ -63,7 +71,7 @@ Live progress for agent work. The agent updates this after every step and pushes
 - **State:** done, merged to `main` (PR #1, 2669e55)
 - **Done:** `docs/PLAN.md` restored as Markdown; `CLAUDE.md`, `docs/ROADMAP.md`, `docs/STATUS.md`, `docs/TASK-TEMPLATE.md`, `.env.example` written; `.gitignore` checked. Decision change applied before merge: LLM is Gemini Flash (free tier), not Anthropic.
 - **Next:** 0.2 (Python project and agent guardrails), then Phase 1.
-- **Human must:** tick 0.1 in ROADMAP.
+- **Human must:** nothing. ~~Tick 0.1 in ROADMAP~~ ticked by the agent in 1.3 (the human's request).
 
 <details><summary>Steps and output from this build</summary>
 
@@ -147,7 +155,7 @@ $ git push
 
 ## 0.2 — Python project and agent guardrails
 - **Branch:** `task/0.2-python-setup`
-- **State:** done, committed and pushed; waiting for the human's check, review and merge
+- **State:** done, merged to `main` (PR #2, 97a159f); the deny-rule check is still the human's
 - **Done:** `uv` project (Python 3.12, `.python-version`, `uv.lock`); package `natalia/` with `__init__.py` and a `llm.py` stub (`generate()` raises `NotImplementedError` until 1.7; no SDK yet); dev group `pytest` + `ruff` (lint rules E, F, W, I, B, UP; line length 100); `tests/` with 5 passing tests; `.claude/settings.json` deny rules.
 - **Next:** Phase 1, task 1.1 (sources and feeds).
 - **Human must:** run the denied-command check below (2 minutes, free), then review and merge.
@@ -230,7 +238,7 @@ $ git push -u origin task/0.2-python-setup
 
 ## 1.1 — Sources and feeds
 - **Branch:** `task/1.1-sources`
-- **State:** done, committed and pushed; waiting for the human's review and merge
+- **State:** done, merged to `main` (PR #3, 915d1de)
 - **Done:** `config/sources.yaml` (85 feeds: name, topic, url, language, paywalled, enabled, note); `natalia/feeds.py` (load + validate the list, check each feed with one GET, print the 5 latest headlines per topic); `tests/test_feeds.py` (list is valid, every topic has ≥2 enabled free feeds, known paywalled sources are flagged, disabled feeds say why, checker parses RSS and never raises; no network). Runtime deps `feedparser` 6.0.14 and `pyyaml` 6.0.3.
 - **Next:** 1.2 (database) needs 🧑 `sudo`; 1.3 (collect) can start from this list.
 - **Human must:** review the list below and the open questions; merge.
@@ -430,7 +438,7 @@ All checks passed!
 
 ## 1.2 — Database
 - **Branch:** `task/1.2-database`
-- **State:** done, committed and pushed; waiting for the human's review and merge
+- **State:** done, merged to `main` (PRs #4 and #5, 9162d25)
 - **Done:** schema migration, connection code, migration runner, memory-tuned config, tests (details below). The human installed and set up PostgreSQL; the migration ran on the real database, all 34 tests pass against it, and PostgreSQL's memory is measured: 52.8 MB idle, peak 56.6 MB.
 - **Next:** 1.3 (collect) stores articles, starting with loading `config/sources.yaml` into `sources`.
 - **Human must:** review and merge.
@@ -724,3 +732,253 @@ MemoryPeak=59351040
 - **Server memory is tight right now, but not because of PostgreSQL.** At the measurement, `free -m` showed 999 MB available (2642 MB this morning) and 543 MB of swap used. The biggest process was the JetBrains remote dev server (`remote-dev-serv`, ~2.0 GB RSS, started ~46 minutes earlier), then the two Claude Code sessions (~310 MB and ~225 MB). That leaves less room for the daily flow's ~700 MB peak (1.5, 1.9) while the IDE backend runs. Also, its untracked `.idea/` folder is in the repo; adding `.idea/` to `.gitignore` would keep it out of commits. Left alone (not committed, not ignored).
 - No upsert helper yet to load `config/sources.yaml` into the `sources` table; 1.3 (collect) needs it first and is the natural place.
 - The test session again started in cloud-ai-lab, so Natalia's `.claude/settings.json` deny rules were not the ones loaded (same as 0.2 and 1.1).
+
+## 1.3 — Collect and clean
+- **Branch:** `task/1.3-collect`
+- **State:** done, committed and pushed; waiting for the human's review and merge
+- **Done:** the collector, its tests, four real runs (numbers below). "Done when" holds: a second run stores no article twice, and a failing feed (Post Khmer, HTTP 500 in runs 3 and 4) doesn't stop the other 73.
+- **Next:** 1.4 (filter by topic) adds rule-based topics to the stored articles.
+- **Human must:** review and merge; tick 1.3. Optional clean-up and open questions below.
+
+### What's on the branch
+| File | What it is |
+|---|---|
+| `natalia/collect.py` | The collector. `uv run python -m natalia.collect` (all enabled feeds), `--feed BBC` (only feeds whose name contains it), `--no-text` (excerpts only, no pages), `--max-age-hours 48`. Prints a per-site progress line and a report: per-topic counts, why articles are excerpt-only, duplicates dropped, run time, HTTP requests, peak memory. |
+| `tests/test_collect.py` | 26 tests, no network (a fake fetcher serves feeds, pages and robots.txt from memory and records every URL requested): URL canonicalization, Google News decoding, headline normalization (Khmer marks kept), excerpts, near-identical headlines, junk headlines, robots.txt (disallow, 403, 404, redirects, crawl delay), refusals, extraction (full, paywall marker, not HTML, too short, network error), and a whole run twice against the real database (rolled back). |
+| `tests/conftest.py` | The database fixtures, moved out of `tests/test_db.py` so both files use them. |
+| `pyproject.toml`, `uv.lock` | `trafilatura` 2.3.1 (brings `lxml` 6.1.3, `justext`, `htmldate`, `courlan`). |
+| `.gitignore` | `.idea/` (the JetBrains folder). |
+| `docs/ROADMAP.md` | 0.1 ticked. |
+
+### How it decides
+- **Sources:** `config/sources.yaml` is upserted into `sources` by feed URL on every run; a feed removed from the file is disabled, not deleted (articles point to it).
+- **Order:** free direct feeds first, then Google News, then paywalled feeds, so when one story is in several feeds, the stored copy is the one that can have full text.
+- **Duplicates:** (1) canonical URL: lowercase host, https, no fragment, no tracking parameters (`utm_*`, `fbclid`, `at_*`, `oc`…), sorted query, no trailing slash; (2) headline: lowercase, no punctuation, " - Publisher" suffix removed, compared exactly, and for headlines of 5+ words also by similarity ≥ 0.9 against articles of the last 3 days. A duplicate from another topic's feed adds its topic to the stored article (`topics` array; 253 articles have more than one).
+- **Full text only when allowed:** not a paywalled source, not a site on `EXCERPT_ONLY_DOMAINS` (Reuters, AP, the paywalled ones), not a Google News link, robots.txt allows the page (checked on every redirect hop), the page is HTML, has no `"isAccessibleForFree": false` marker, and gives ≥ 300 characters of text. Otherwise: headline + feed excerpt + link. No paywall is ever bypassed: paywalled pages are never requested.
+- **Google News links are not resolved.** news.google.com's robots.txt disallows `/rss/articles/` (the redirect) and the API that decodes new-style ids; current ids (`CBMi…AU_yqL…`) don't contain the URL. The collector decodes old-style ids offline (0 of 935 in this run were old-style); the rest keep the Google link, which opens the article in a browser. Their duplicates are caught by headline.
+- **Not news:** headlines that are just a ticker or a "Stock Price & Latest News" page (Reuters' Google News search returns ~90 a run) are dropped.
+- **Polite:** user agent `natalia/0.1 (personal news reader)`, robots rules matched for `natalia`; 15 s timeout, 3 MB cap; one request at a time per site, ≥ 1 s apart (more if robots.txt sets `Crawl-delay`; above 30 s, no page fetches); at most 4 sites at once; a site that refuses (401/403/405/429) or times out twice is not asked again that run. Feeds themselves are fetched without the robots.txt check, as feed readers do (see open question 1).
+
+### Real runs (2026-10-15)
+| Run | When (UTC) | Code | Stored | Full | Excerpt | Dup URL | Dup headline | Not news | Time | HTTP requests | Peak RSS |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| 1 | 10:19 | first version | 1,719 | 654 | 1,065 | 248 | 60 | – | **1,373 s** | 897 | 166 MB |
+| 2 | 10:47 | + refusal cut-off, new UA | 112 | 22 | 90 | 1,831 | 72 | – | 85 s | 120 | 128 MB |
+| 3 | 11:05 | + junk filter | 14 | 0 | 14 | 1,856 | 52 | 90 | 136 s | 84 | 69 MB |
+| 4 | 11:20 | final UA | 13 | 3 | 10 | 1,855 | 54 | 87 | 182 s | 87 | 88 MB |
+
+Peak RSS is `/usr/bin/time -v`'s "Maximum resident set size" (the Python process). The daily-flow budget is ≤ 700 MB. PostgreSQL after the runs: 56 MB, peak 68.6 MB (`systemctl show postgresql@16-main`); the database is 12 MB.
+
+**In the database after run 4:** 1,863 articles, 684 with full text, 1,179 excerpt-only; 0 headlines stored twice; 21 Khmer articles, all with full text; median body 3,479 characters.
+
+| Topic (articles can have several) | Articles | Full text | Excerpt-only |
+|---|---|---|---|
+| economics | 224 | 49 | 175 |
+| world-politics | 369 | 136 | 233 |
+| technology | 112 | 27 | 85 |
+| science | 157 | 42 | 115 |
+| sport | 251 | 133 | 118 |
+| crypto | 117 | 96 | 21 |
+| markets | 315 | 66 | 249 |
+| cambodia | 171 | 70 | 101 |
+| general | 410 | 127 | 283 |
+
+Excerpt-heavy topics are the ones with many paywalled or Google News feeds (markets, economics, general).
+
+**Sites that refuse full text** (excerpt-only, as asked): Ars Technica (HTTP 405), Phys.org, The Block, Investing.com and Sky News (HTTP 403), NPR (pages time out; its robots.txt is fine). Reuters and AP never get a page request.
+
+<details><summary>Steps and output from this build</summary>
+
+**0. Which repo.** The session started in `~/projects/cloud-ai-lab`; the task belongs to Natalia. The human confirmed: work in `~/projects/natalia`, leave cloud-ai-lab alone.
+**Result:** ✅
+
+**1. Branch from `origin/main`.** 1.2 was merged (PR #5).
+```console
+$ git fetch origin && git log --oneline -1 origin/main
+9162d25 Merge pull request #5 from thovicheka/task/1.2-database
+$ git switch -c task/1.3-collect origin/main
+Switched to a new branch 'task/1.3-collect'
+$ git branch --unset-upstream    # so a bare `git push` can never target main
+```
+**Result:** ✅
+
+**2. Google News: what robots.txt allows.**
+```console
+$ curl -s -A "natalia" https://news.google.com/robots.txt | head -14
+User-agent: *
+Disallow: /
+Allow: /$
+Allow: /?
+Allow: /home$
+(…)
+Allow: /topics/
+Allow: /publications/
+Allow: /stories/
+```
+A feed link is `https://news.google.com/rss/articles/CBMiogFBVV95cUxO…?oc=5`; its base64 decodes to `\x08\x13"\xa2\x01AU_yqLN…`, an opaque id with no URL in it.
+**Result:** ⚠️ `/rss/articles/` (the redirect) is disallowed, so the collector doesn't follow these links; see open question 1. `/rss/search` (the feeds) is disallowed too.
+
+**3. Dependency.**
+```console
+$ uv add trafilatura
+ + lxml==6.1.3
+ + trafilatura==2.3.1
+ (+ courlan, dateparser, htmldate, justext, lxml-html-clean, …)
+```
+**Result:** ✅
+
+**4. Smoke run, one feed, twice.**
+```console
+$ uv run python -m natalia.collect --feed "CamboJA News"
+feeds done: 5 new articles to store
+cambodia            1    0      10     5      0        0      5     5       0
+run time 7 s, 7 HTTP requests, peak memory (max RSS) 64 MB
+$ uv run python -m natalia.collect --feed "CamboJA News"
+feeds done: 0 new articles to store
+cambodia            1    0      10     5      5        0      0     0       0
+run time 1 s, 1 HTTP requests, peak memory (max RSS) 46 MB
+```
+**Result:** ✅ 5 stored with full text (4–9 k characters each), 5 too old; the second run found 5 URL duplicates and stored nothing.
+
+**5. Tests.** First run of the new tests:
+```console
+$ uv run pytest -q
+FAILED tests/test_collect.py::test_collect_twice_stores_each_article_once
+E       AssertionError: assert [',', 'a', 'a...'c', 'c', ...] == ['cambodia', 'economics']
+```
+**Result:** ❌ → fixed. **Cause:** psycopg returns the `topic[]` domain array as a string; **fix:** the test reads `topics::text[]`. Two more test-side fixes: the fake page was served under the clean URL while the collector rightly fetches the feed's own link, and the fake Google News item had a longer excerpt than real ones.
+
+**6. First real run** (all 74 enabled feeds):
+```console
+$ /usr/bin/time -v uv run python -m natalia.collect
+feeds done: 1719 new articles to store
+topic           feeds fail entries   old dupURL dupTitle stored  full excerpt
+economics           9    0     581   365     32        3    181    49     132
+world-politics      9    0     366    21    167        4    174    97      77
+technology          6    0     131    19      4        2    106    23      83
+science             9    0     309   146      7        2    154    42     112
+sport               5    0     275    37     18        1    219   115     104
+crypto              6    0     121     7      0        0    114    93      21
+markets             9    0     311    41      5       16    249    61     188
+cambodia           14    0     448   254      5       27    162    65      97
+general             7    0     400    25     10        5    360   109     251
+TOTAL              74    0    2942   915    248       60   1719   654    1065
+
+excerpt-only, why:
+    514  Google News link (not followed: robots.txt)
+    413  paywalled source
+     58  HTTP 403
+     26  robots.txt disallows
+     25  too little text on page
+     20  HTTP 405
+      9  paywall marker on page
+
+Google News links: 935, resolved offline: 0; topics added to already-stored articles: 237
+near-identical headlines dropped (new -> kept), first few:
+  'uk threatens to ban eritreans over returns policy'
+    -> 'uk threatens to ban eritreans over migrant return policy'
+  'germany mine clearance support benefits 500 000 cambodians'
+    -> 'german mine clearance support benefits 500 000 cambodians since 1993'
+  'vietnamese party state facilitate more substantive defence ties with c'
+    -> 'vietnamese party state facilitate more substantive defense ties with c'
+
+run time 1373 s, 897 HTTP requests, peak memory (max RSS) 162 MB
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 22:52.99
+	Maximum resident set size (kbytes): 166160
+	Exit status: 0
+```
+**Result:** ⚠️ correct, but slow: 22.9 min for 897 requests. **Cause**, found by timing single requests: (a) sites that refuse slowly (a Phys.org 403 took 32 s) were still asked for every queued article (29 for Phys.org); (b) NPR's Akamai front end stalls a client whose user agent says `Mozilla/5.0 (compatible; …)`, so NPR's robots.txt timed out (15 s) and was read as "disallow all". Guardian and BBC pages took ~1 s each, so the 1 s per-site gap is not the problem. **Fix:** a site that refuses (401/403/405/429) or times out twice is not asked again that run (politer too); an honest user agent (step 9).
+
+**7. Second real run** (refusal cut-off; checks "running it twice"):
+```console
+feeds done: 112 new articles to store
+  www.investing.com: 0/10 full text, 2 s
+  www.theguardian.com: 5/5 full text, 7 s
+  phys.org: 0/1 full text, 2 s
+  (…)
+TOTAL              74    0    2939   924   1831       72    112    22      90
+run time 85 s, 120 HTTP requests, peak memory (max RSS) 125 MB
+```
+Were the 112 new rows really new? In SQL: headlines stored twice: **0**. 74 of them were published before run 1, but they're not repeats: Google News search feeds return a different 100 of the day's matches on each fetch, and 60 of the 112 came from them.
+**Result:** ✅ no duplicates. ❌ found junk: 99 stored rows were Reuters stock-quote pages (`3ZV.MU - Reuters`, `(ORK.HA) | Stock Price & Latest News - Reuters`). **Fix:** a junk-headline rule; checked against all 1,836 stored titles, it matches exactly those 99 and nothing else.
+
+**8. Third real run** (junk filter):
+```console
+feeds done: 14 new articles to store
+TOTAL              74    1    2859   937   1856       52     14     0      14
+not news, dropped (stock-quote pages): 90
+feed errors:
+  Post Khmer: HTTP 500
+run time 136 s, 84 HTTP requests, peak memory (max RSS) 68 MB
+```
+**Result:** ✅ 90 stock-quote entries dropped; Post Khmer's server error didn't stop the other 73 feeds.
+
+**9. User agent.** With the user agent from step 6's fix (`natalia/0.1 (personal news reader; respects robots.txt)`), NPR's robots.txt still timed out:
+```console
+UA only   TimeoutError 10.0s      # natalia/0.1 (personal news reader; respects robots.txt)
+short UA  200 0.1s                # natalia/0.1
+natalia/0.1 personal-news-reader       200 0.1s
+natalia/0.1 (personal news reader)     200 0.0s
+```
+**Result:** ❌ → fixed: NPR's bot rules also catch the word "robots". Final user agent `natalia/0.1 (personal news reader)`. A side-by-side check of one article per free site (34 sites) gave the same status codes for the Mozilla and natalia user agents, so nothing else changes.
+
+**10. Fourth real run** (final user agent):
+```console
+feeds done: 13 new articles to store
+TOTAL              74    1    2862   940   1855       54     13     3      10
+not news, dropped (stock-quote pages): 87
+feed errors:
+  Post Khmer: HTTP 500
+run time 182 s, 87 HTTP requests, peak memory (max RSS) 86 MB
+```
+**Result:** ✅ all feeds but Post Khmer (still HTTP 500 on their side) work with the new user agent. Most of the 182 s is Google News: its 10 feeds share one site, so they are fetched one by one, and an uncached `site:… when:1d` search takes 18–48 s on Google's side (3 s when cached; curl sees the same). Not parallelized, to stay polite.
+
+**11. Tests and lint.**
+```console
+$ uv run ruff check . ; uv run ruff format --check .
+All checks passed!
+19 files already formatted
+$ uv run pytest -q
+60 passed in 0.84s
+```
+**Result:** ✅ 34 earlier tests + 26 new; the database tests roll back everything they write.
+
+**12. `.idea/` in `.gitignore`, 0.1 ticked in ROADMAP.**
+```console
+$ git check-ignore -v .idea/
+.gitignore:191:.idea/	.idea/
+```
+**Result:** ✅
+
+**13. Commits** (all pushed to `task/1.3-collect`):
+```console
+05d9b5c Task 1.3: collector (feeds -> articles), trafilatura text where allowed, dedup, robots.txt, tests; ignore .idea/, tick 0.1
+551501c Collector: stop asking a site after 2 refusals, honest user agent, per-site progress; ...
+0bcd16c Collector: drop stock-quote pages (not news) from Reuters' Google News search
+8c2a2b5 Collector: user agent "natalia/0.1 (personal news reader)" (NPR stalls UAs containing "robots")
+```
+**Result:** ✅
+</details>
+
+### Human must
+1. Review and merge `task/1.3-collect`; tick 1.3 in ROADMAP.
+2. **Optional:** delete the 99 stock-quote rows stored before the junk filter existed (nothing references them yet). Expected output: `99 deleted`.
+```bash
+cd ~/projects/natalia && uv run python -c "
+from natalia import db, collect
+with db.connect() as conn:
+    ids = [i for i, t in conn.execute('SELECT id, title FROM articles').fetchall() if collect.is_junk_title(t, 'Reuters')]
+    print(conn.execute('DELETE FROM articles WHERE id = ANY(%s)', (ids,)).rowcount, 'deleted')"
+```
+
+### Open questions for the human
+1. **Google News and robots.txt.** news.google.com's robots.txt disallows `/rss/search` (the 10 feeds) and `/rss/articles/` (their redirect links) for every user agent. The collector fetches the **feeds**, as feed readers do for subscriptions a person chose (Google's own Feedfetcher ignores robots.txt for that reason), but never follows the **links**. So Reuters/AP items keep a `news.google.com` link (fine in a browser) and no excerpt. If you'd rather obey robots.txt for the feeds too, set `enabled: false` on the 10 Google News feeds: Reuters and AP disappear, and every topic still has ≥ 2 free feeds except world-politics and general, which keep 6 and 5.
+2. **Sites that refuse full text** (Ars Technica, Phys.org, The Block, Investing.com, Sky News, NPR) stay excerpt-only. Keep them for headlines, or swap for sites that serve text?
+3. **Near-identical headlines** use similarity ≥ 0.9. It merged updates of the same story ("kills at least 10…" → "…at least 29…") and US/UK spellings ("defence"/"defense"), and found no wrong merges in the examples printed. Khmer headlines (few spaces) only merge on an exact match.
+
+**Noticed, not done (out of scope):**
+- `natalia/feeds.py` (1.1's checker) still sends the `Mozilla/5.0 (compatible; …)` user agent, which NPR stalls. A one-line change to the collector's user agent.
+- Google News feeds are slow on Google's side (18–48 s each, uncached), so each run spends ~2–3 min on them. Fine at 07:00; worth knowing for 1.9's timing.
+- Post Khmer returned HTTP 500 in runs 3 and 4 (worked in runs 1–2 and in 1.1). Probably temporary; 1.1's checker will show it.
+- The first cold run took 22.9 min before the fixes. A cold run with today's code should be ~6–7 min (the Guardian queue, ~160 pages at ~2.4 s, is the longest), but that's an estimate: runs 2–4 had little new to fetch. The first 07:00 run in 1.9 will show.
+- Wired's coupon posts and The Guardian's reviews are stored like news; topic filtering (1.4) is the place to drop them.
