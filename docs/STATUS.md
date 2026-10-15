@@ -4,6 +4,13 @@ Live progress for agent work. The agent updates this after every step and pushes
 
 ## Summary
 
+**Run of 2026-10-15 (sixth): 1.2 done (branch `task/1.2-database`). Stopping here.** The human installed PostgreSQL 16.15 + pgvector 0.6.0 with the commands below and put `DATABASE_URL` in `.env`; their settings check matched (`jit|off`, `listen_addresses|localhost`, `max_connections|20`, `shared_buffers|8192`). Migration `0001_initial_schema` applied on the real database; a second run applied nothing. **34 tests pass, 0 skipped**, including the 3 against the real database; they left no rows behind. PostgreSQL uses **52.8 MB idle (peak 56.6 MB** during the migration and tests), well under the 250 MB target. Both schema choices confirmed by the human (topics as a list; summaries per article + language). Ticked 0.2, 1.1, 1.2 and 1.6 in ROADMAP. No sudo, no Gemini call, no money spent.
+
+**Human must:**
+1. **1.2:** review and merge `task/1.2-database`.
+2. Tick 0.1 in ROADMAP too (merged as PR #1; not in this run's list, so left unticked).
+3. Next 🧑 steps in Phase 1: 1.5 pick the embedding option (after the agent measures it); 1.7 approve one real digest; 1.8 create Natalia's bot; 1.9 register the daily deployment. The 0.2 deny-rule check still stands.
+
 **Run of 2026-10-15 (fifth): 1.2 agent part done, blocked on 🧑 install (branch `task/1.2-database`, from `origin/main` at 915d1de, where 1.1 is merged). Stopping here.** Schema as one SQL migration (`migrations/0001_initial_schema.sql`: sources, articles, embeddings `vector(384)` with an HNSW cosine index, summaries, digests, digest_items), connection code and a migration runner (`natalia/db.py`, reads `DATABASE_URL` from the environment or `.env`), and a memory-tuned PostgreSQL config (`deploy/postgresql/natalia.conf`: `shared_buffers=64MB`, `max_connections=20`, `jit=off`, localhost only). Added `psycopg[binary]` and `python-dotenv` to the project's `.venv` (nothing system-wide). 31 tests pass; the 3 database tests skip until PostgreSQL is installed. No sudo, no accounts, no Gemini call, no money spent.
 
 **Human must:**
@@ -423,10 +430,10 @@ All checks passed!
 
 ## 1.2 — Database
 - **Branch:** `task/1.2-database`
-- **State:** blocked on 🧑: the agent part is done, committed and pushed; PostgreSQL is not installed yet
-- **Done:** schema migration, connection code, migration runner, memory-tuned config, tests (details below).
-- **Next:** once PostgreSQL is installed: `uv run python -m natalia.db migrate`, `uv run pytest` (the 3 database tests then run), measure memory. Then 1.3 (collect) can store articles.
-- **Human must:** run the commands in "Install and set up" below, in order, in one terminal.
+- **State:** done, committed and pushed; waiting for the human's review and merge
+- **Done:** schema migration, connection code, migration runner, memory-tuned config, tests (details below). The human installed and set up PostgreSQL; the migration ran on the real database, all 34 tests pass against it, and PostgreSQL's memory is measured: 52.8 MB idle, peak 56.6 MB.
+- **Next:** 1.3 (collect) stores articles, starting with loading `config/sources.yaml` into `sources`.
+- **Human must:** review and merge.
 
 ### What's on the branch
 | File | What it is |
@@ -436,7 +443,7 @@ All checks passed!
 | `deploy/postgresql/natalia.conf` | Memory settings, installed into PostgreSQL's `conf.d/` by the human. |
 | `tests/test_db.py` | 10 tests without a database (migration names, schema topics and languages match `natalia/feeds.py`, vector size, `DATABASE_URL` loading, `to_vector`), and 3 against the real database (migrations applied and pgvector present; insert → nearest-neighbour search → digest join; constraints reject duplicate URLs, unknown topics and languages, wrong vector size). Database tests roll back everything they write. |
 
-**Schema choices to check:**
+**Schema choices (confirmed by the human on 2026-10-15):**
 - `articles.topics` is an array, not one `topic` column: an article gets its feed's topic plus rule-based ones in 1.4 (e.g. a BBC Business story that mentions Cambodia).
 - An article is stored once; `source_id` is the feed it was first seen in.
 - Summaries are per article and language, not per digest, so a Khmer summary (Phase 3) is written once and reused.
@@ -456,7 +463,9 @@ Ubuntu's defaults are `shared_buffers=128MB`, `max_connections=100`, JIT on. `na
 | `jit` | off | JIT loads LLVM (tens of MB per backend) for big analytic queries Natalia doesn't run |
 | `autovacuum_max_workers` | 2 | default 3; a handful of tables |
 
-**Expected:** ~30–60 MB idle after a restart (shared buffers fill as data is read), ~100–150 MB while the daily flow and the bot are connected, worst case under ~200 MB. Target is ≤ 250 MB. PostgreSQL runs in its own `systemd` unit, so its memory doesn't count against the lab worker's `MemoryMax=900M`; only the Python client side does. To be measured after install.
+**Expected:** ~30–60 MB idle after a restart (shared buffers fill as data is read), ~100–150 MB while the daily flow and the bot are connected, worst case under ~200 MB. Target is ≤ 250 MB. PostgreSQL runs in its own `systemd` unit, so its memory doesn't count against the lab worker's `MemoryMax=900M`; only the Python client side does.
+
+**Measured** (2026-10-15, 35 minutes after start, right after the migration and the test run; empty database, 8 MB on disk): **52.8 MB, peak 56.6 MB**. To measure again once 1.3 stores real data and 1.9 runs the daily flow.
 
 ### Install and set up (🧑, `sudo`)
 Run these in your own terminal, in order, in **one** shell session (steps 5–11 share a shell variable). Don't run them with Claude Code's `!` prefix: that puts the output into the agent's chat. Nothing below prints the password.
@@ -530,7 +539,7 @@ cd ~/projects/natalia && uv run python -m natalia.db migrate   # expect: applied
 uv run pytest                                                  # expect: all passed, 0 skipped
 systemctl status postgresql@16-main --no-pager                 # the "Memory:" line
 ```
-Use `postgresql@16-main`, not `postgresql`: on Ubuntu `postgresql.service` is an empty wrapper and shows no memory.
+✅ Done in the sixth run; output below (steps 8–11). Use `postgresql@16-main`, not `postgresql`: on Ubuntu `postgresql.service` is an empty wrapper and shows no memory.
 
 <details><summary>Steps and output from this build</summary>
 
@@ -628,10 +637,90 @@ $ git push -u origin task/1.2-database
  * [new branch]      task/1.2-database -> task/1.2-database
 ```
 **Result:** ✅
+
+**8. 🧑 Install and set up** (the human, 2026-10-15, with the commands above). Their check of step 12:
+```console
+$ sudo -u postgres psql -Atc "SELECT name, setting FROM pg_settings WHERE name IN (...) ORDER BY name"
+jit|off
+listen_addresses|localhost
+max_connections|20
+shared_buffers|8192
+```
+**Result:** ✅ `natalia.conf` is in effect (8192 × 8 kB = 64 MB).
+
+**9. Migrate on the real database**, twice (the second run must do nothing):
+```console
+$ uv run python -m natalia.db status
+PostgreSQL 16.15 (Ubuntu 16.15-0ubuntu0.24.04.1), pgvector 0.6.0
+applied migrations: none
+pending migrations: 0001_initial_schema
+$ uv run python -m natalia.db migrate
+applied: 0001_initial_schema
+PostgreSQL 16.15 (Ubuntu 16.15-0ubuntu0.24.04.1), pgvector 0.6.0
+applied migrations: 0001_initial_schema
+pending migrations: none
+$ uv run python -m natalia.db migrate
+nothing to apply
+PostgreSQL 16.15 (Ubuntu 16.15-0ubuntu0.24.04.1), pgvector 0.6.0
+applied migrations: 0001_initial_schema
+pending migrations: none
+```
+**Result:** ✅ The `natalia` role connects with the password from `.env`, and `CREATE EXTENSION IF NOT EXISTS vector` is a no-op for it because the human created the extension as superuser.
+
+**10. All tests, against the real database**
+```console
+$ uv run pytest -v
+tests/test_db.py::test_migrations_applied_and_pgvector_present PASSED
+tests/test_db.py::test_round_trip_and_nearest_neighbours PASSED
+tests/test_db.py::test_constraints PASSED
+(…31 more, all PASSED)
+============================== 34 passed in 0.48s ==============================
+$ uv run ruff check . ; uv run ruff format --check .
+All checks passed!
+14 files already formatted
+```
+Then checked that the tests left nothing behind:
+```console
+sources            rows=0
+articles           rows=0
+embeddings         rows=0
+summaries          rows=0
+digests            rows=0
+digest_items       rows=0
+schema_migrations  rows=1
+('embeddings_hnsw_idx',)
+8135 kB database size
+```
+**Result:** ✅
+
+**11. PostgreSQL memory**
+```console
+$ systemctl status postgresql@16-main --no-pager
+● postgresql@16-main.service - PostgreSQL Cluster 16-main
+     Active: active (running) since Thu 2026-10-15 09:22:05 UTC; 35min ago
+      Tasks: 6 (limit: 4482)
+     Memory: 52.8M (peak: 56.6M)
+        CPU: 1.652s
+     CGroup: /system.slice/system-postgresql.slice/postgresql@16-main.service
+             ├─11206 /usr/lib/postgresql/16/bin/postgres -D /var/lib/postgresql/16/main -c config_file=...
+             ├─11207 "postgres: 16/main: checkpointer "
+             ├─11208 "postgres: 16/main: background writer "
+             ├─11210 "postgres: 16/main: walwriter "
+             ├─11211 "postgres: 16/main: autovacuum launcher "
+             └─11212 "postgres: 16/main: logical replication launcher "
+$ systemctl show postgresql@16-main -p MemoryCurrent -p MemoryPeak
+MemoryCurrent=55382016
+MemoryPeak=59351040
+```
+**Result:** ✅ 52.8 MB, target ≤ 250 MB. Adding the processes' RSS (~83 MB) counts the shared buffers several times; the cgroup figure above is the true one.
+
+**12. Tick 0.2, 1.1, 1.2 and 1.6 in ROADMAP** (the human's request), commit and push.
+**Result:** ✅ (commit below in git log)
 </details>
 
 **Noticed, not done (out of scope):**
 - ROADMAP 1.2's "done when" says `systemctl status postgresql`; on Ubuntu that unit shows no memory. `postgresql@16-main` is the one to read. Worth a one-word edit in ROADMAP.
-- ROADMAP lists a single `topic` per article; the schema uses `topics topic[]` (see "Schema choices to check"). Say if you'd rather have one topic.
+- ~~ROADMAP lists a single `topic` per article; the schema uses `topics topic[]`.~~ Confirmed by the human: topics as a list.
+- **Server memory is tight right now, but not because of PostgreSQL.** At the measurement, `free -m` showed 999 MB available (2642 MB this morning) and 543 MB of swap used. The biggest process was the JetBrains remote dev server (`remote-dev-serv`, ~2.0 GB RSS, started ~46 minutes earlier), then the two Claude Code sessions (~310 MB and ~225 MB). That leaves less room for the daily flow's ~700 MB peak (1.5, 1.9) while the IDE backend runs. Also, its untracked `.idea/` folder is in the repo; adding `.idea/` to `.gitignore` would keep it out of commits. Left alone (not committed, not ignored).
 - No upsert helper yet to load `config/sources.yaml` into the `sources` table; 1.3 (collect) needs it first and is the natural place.
 - The test session again started in cloud-ai-lab, so Natalia's `.claude/settings.json` deny rules were not the ones loaded (same as 0.2 and 1.1).
