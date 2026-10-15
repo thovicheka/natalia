@@ -99,6 +99,11 @@ TRACKING_PARAMS = re.compile(
     r"guccounter|_ga|xtor|sr_share|taid)$",
     re.I,
 )
+# Not news: stock-quote pages that Reuters' Google News search returns ("3ZV.MU - Reuters",
+# "(ORK.HA) | Stock Price & Latest News - Reuters"). Matched after the " - Publisher" suffix.
+JUNK_TITLE = re.compile(
+    r"^\(?[A-Z0-9]{1,6}(\.[A-Z]{1,4})?\)?(\s*-?\s*\|?\s*Stock Price (&|and) Latest News)?\s*-?$"
+)
 PAYWALL_MARKER = re.compile(rb'"isAccessibleForFree"\s*:\s*"?false', re.I)
 
 
@@ -159,6 +164,14 @@ def normalize_title(title: str, publisher: str = "") -> str:
                 title = title[: -len(sep + publisher)]
                 break
     return " ".join(_strip_marks(title).casefold().split())
+
+
+def is_junk_title(title: str, publisher: str = "") -> bool:
+    """True for headlines that are not news (stock-quote pages)."""
+    title = html.unescape(title).strip()
+    if publisher and title.endswith(" - " + publisher):
+        title = title[: -len(" - " + publisher)]
+    return bool(JUNK_TITLE.match(title.strip()))
 
 
 def clean_excerpt(summary: str, title: str) -> str | None:
@@ -382,6 +395,7 @@ class RunStats:
     excerpt_reasons: Counter = field(default_factory=Counter)
     feed_errors: list[str] = field(default_factory=list)
     dup_examples: list[tuple[str, str]] = field(default_factory=list)
+    junk: int = 0  # entries dropped as not news (see JUNK_TITLE)
     gn_items: int = 0
     gn_resolved: int = 0
     topics_merged: int = 0
@@ -403,6 +417,9 @@ def parse_feed(body: bytes, src: Source, source_id: int, stats: RunStats) -> lis
         publisher = ""
         if entry.get("source"):
             publisher = (entry.source.get("title") or "").strip()
+        if is_junk_title(title, publisher):
+            stats.junk += 1
+            continue
         url, fetch_from = canonical_url(link), link
         if urlsplit(link).hostname == GOOGLE_NEWS_HOST:
             stats.gn_items += 1
@@ -764,8 +781,9 @@ def print_report(stats: RunStats, seconds: float, requests: int) -> None:
     print("\nexcerpt-only, why:")
     for reason, n in stats.excerpt_reasons.most_common():
         print(f"  {n:>5}  {reason}")
+    print(f"\nnot news, dropped (stock-quote pages): {stats.junk}")
     print(
-        f"\nGoogle News links: {stats.gn_items}, resolved offline: {stats.gn_resolved}; "
+        f"Google News links: {stats.gn_items}, resolved offline: {stats.gn_resolved}; "
         f"topics added to already-stored articles: {stats.topics_merged}"
     )
     if stats.dup_examples:

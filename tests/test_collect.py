@@ -111,6 +111,22 @@ def test_normalize_title():
     assert c.normalize_title("ស្ថានីយ៍ទូរទស្សន៍!") == "ស្ថានីយ៍ទូរទស្សន៍"
 
 
+@pytest.mark.parametrize(
+    "title, junk",
+    [
+        ("3ZV.MU - Reuters", True),
+        ("(ORK.HA) | Stock Price & Latest News - Reuters", True),
+        ("8750.MU - | Stock Price & Latest News - Reuters", True),
+        ("NATO - Reuters", True),
+        ("Germany moves to end VAT exemption for business mail - Reuters", False),
+        ("Fed holds rates", False),
+        ("ស្ថានីយ៍ទូរទស្សន៍", False),
+    ],
+)
+def test_is_junk_title(title, junk):
+    assert c.is_junk_title(title, "Reuters") is junk
+
+
 def test_clean_excerpt():
     title = "Albania's Rama says he will not resign"
     gn = f'<a href="https://news.google.com/x">{title}</a>&nbsp;&nbsp;<font>Reuters</font>'
