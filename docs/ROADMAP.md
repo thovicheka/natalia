@@ -48,7 +48,7 @@ The embedding model is the biggest risk: PyTorch alone can take several hundred 
 
 ## Stage 0 — Project setup
 
-- [ ] **0.1 Project setup** — 🤖
+- [x] **0.1 Project setup** — 🤖
   - 🤖 `CLAUDE.md` (hard rules from cloud-ai-lab, adapted), this roadmap, `docs/STATUS.md`, `docs/TASK-TEMPLATE.md`, `.env.example`; check `.gitignore` covers `.env` and `.venv`. PLAN.md restored as Markdown.
   - **Done when:** the files are on branch `task/0.1-project-setup`, ready for review.
 
