@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "deny": [
+      "Bash(sudo:*)",
+      "Bash(su:*)",
+      "Bash(git push origin main:*)",
+      "Bash(git push origin HEAD:main:*)",
+      "Bash(git push --force:*)",
+      "Bash(git push -f:*)",
+      "Bash(git push --force-with-lease:*)",
+      "Bash(git merge:*)",
+      "Bash(git reset --hard:*)",
+      "Bash(rm -rf:*)",
+      "Read(./.env)",
+      "Read(**/.env)",
+      "Bash(cat .env:*)",
+      "Bash(modal run:*)",
+      "Bash(modal deploy:*)",
+      "Bash(modal serve:*)",
+      "Bash(uv run modal run:*)",
+      "Bash(uv run modal deploy:*)",
+      "Bash(uv run modal serve:*)",
+      "Bash(rclone delete:*)",
+      "Bash(rclone deletefile:*)",
+      "Bash(rclone purge:*)",
+      "Bash(rclone sync:*)",
+      "Bash(prefect deployment run:*)",
+      "Bash(uv run prefect deployment run:*)",
+      "Bash(.venv/bin/prefect deployment run:*)",
+      "Bash(prefect flow-run resume:*)",
+      "Bash(uv run prefect flow-run resume:*)",
+      "Bash(.venv/bin/prefect flow-run resume:*)",
+      "Bash(*prefect deployment run*)",
+      "Bash(*prefect flow-run resume*)",
+      "Bash(*run_deployment*)",
+      "Bash(*resume_flow_run*)",
+      "Bash(*/deployments/*/create_flow_run*)",
+      "Bash(*/flow_runs/*/resume*)"
+    ]
+  }
+}
