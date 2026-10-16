@@ -63,7 +63,7 @@ The embedding model is the biggest risk: PyTorch alone can take several hundred 
   - 🤖 `docs/STYLE.md` (adapted from cloud-ai-lab's), `docs/decisions.md`, stage docs for what's done (`00-project-setup.md`, `01-sources.md`, `02-database.md`, `03-collect.md`) written from STATUS.md's records, README with the architecture and a docs table, and a CLAUDE.md rule: after each task, update the matching stage doc.
   - **Done when:** the docs are on branch `task/0.3-docs`, ready for review.
 
-- [ ] **0.4 Deny-rule check** — 🤖 → `docs/00-project-setup.md`
+- [x] **0.4 Deny-rule check** — 🤖 → `docs/00-project-setup.md`
   - 🤖 In a Claude Code session started in `~/projects/natalia`, check that `.claude/settings.json` really blocks each guarded action (sudo, push to main, force-push, merge, `rm -rf`, reading `.env`, Modal, rclone, Prefect runs), using harmless probes (`--help`, `--dry-run`, a decoy `.env` with fake content). Probe for gaps (other spellings of the same action) and close them.
   - **Done when:** every guarded action is refused in a live session, gaps found are closed and re-tested, and a test checks the rules stay in the file.
 

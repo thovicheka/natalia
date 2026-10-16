@@ -4,7 +4,32 @@ Live progress for agent work. The agent updates this after every step and pushes
 
 ## Summary
 
-**Run of 2026-10-16 (second), unattended queue: 0.4 → 1.4 → 1.5 → 1.7 → 1.8, each on its own branch stacked on the previous one. In progress.** 0.4 done (`task/0.4-deny-check`): all deny rules block in a live session; 9 gaps closed. 1.4 done (`task/1.4-filter`): topic rules + top 5 stories per topic, 101 tests. 1.5 done (`task/1.5-embeddings`): e5-small int8 on ONNX, 438 MB peak, all 2,614 articles embedded; 🧑 pick. 1.7 code done (`task/1.7-digest`) but **blocked**: Gemini answers 403 "project denied access"; 3 of 60 approved calls used, 0 tokens. 1.8 done (`task/1.8-bot`): bot code, service file, 132 tests; 🧑 BotFather steps. Final summary goes here when the queue is done.
+**Run of 2026-10-16 (second), unattended queue 0.4 → 1.4 → 1.5 → 1.7 → 1.8: finished. Stopping here.** Four tasks done; one blocked on the human (1.7: Gemini refuses the project). No sudo, no accounts, no money. Gemini: **3 of the 60 approved calls used, 0 tokens** (all three refused; listed in `logs/llm-usage.jsonl`). Free things only otherwise: one collection run (public feeds and pages, robots.txt respected, paywalls untouched), public model downloads from Hugging Face. Tests: 67 → **132**, all passing.
+
+| Task | Branch | Result |
+|---|---|---|
+| 0.4 deny-rule check | `task/0.4-deny-check` (merged, PR #9) | ✅ Every 0.2 rule blocks in a live session. **9 gaps closed** (push onto `main` via `x:main` / `-u` / `refs/heads/main`, force-push via `+`, `bash -c 'sudo …'`, Python reading `.env`, `.env` files *outside* the project such as cloud-ai-lab's, `rm -fr`, `git clean`). ROADMAP: 0.3, 1.3 and 0.4 ticked; stage docs numbered by build stage (your decision). |
+| 1.4 filter + top stories | `task/1.4-filter` (merged, PR #10) | ✅ Keyword rules (English + Khmer), language fixed from script, top 5 per topic by coverage across sites, recency and full text; each story once. 45 picks for 2026-10-16, 36 covered by 2+ sites. No LLM. |
+| 1.5 embeddings | `task/1.5-embeddings` (merged with PR #11) | ✅ e5-small **int8 ONNX**: 438 MB peak, 2.9 s/100 articles, 4 ms/query (PyTorch: 1,298 MB, same vectors). English questions 15/15; Khmer → Khmer 9/10; **Khmer → English 4/10** (weak). All 2,614 articles embedded. 🧑 pick. |
+| 1.7 summaries + digest | `task/1.7-digest` (first commit merged in PR #11; **second commit not merged**) | ❌ **Blocked**: `gemini-2.5-flash` is closed to new users (404); `gemini-3.8-flash` and `gemini-3.1-flash-lite` answer **403 "Your project has been denied access"**. Code and tests done, the 45 picks stored; preview without summaries in `docs/digests/2026-10-16.md`. |
+| 1.8 Telegram bot | `task/1.8-bot` | ✅ Code (owner-only, long polling, digest as packed HTML), `deploy/natalia-bot.service` (`MemoryMax=200M`), tests with fakes; ~80 MB. No bot created, nothing sent. |
+
+**Merge order (what's left):** 0.4, 1.4 and 1.5 are already on `main`. Merge **`task/1.7-digest`** next (a new PR: its second commit, a622cf8, moves `main` off the retired `gemini-2.5-flash`, which PR #11 brought in), then **`task/1.8-bot`** (stacked on it; this summary is on that branch).
+
+**Human must:**
+1. **1.7, restore Gemini access** *(in your browser)*: AI Studio → *Get API key* → check the project; create a key in a **new** Cloud project (no billing), put it in `.env` (your own terminal), then `uv run python -m natalia.llm ping` → expect `gemini-3.8-flash: 'OK' (…)`. If a new project is denied too, the Google account is restricted: contact Google or use another account. Details: `docs/06-digest.md` step 4.
+2. **1.7, approve the model** `gemini-3.8-flash` (you asked for 2.5 Flash; it's closed to new keys) and check its free-tier limits in AI Studio (*Usage & limits*; the public page no longer lists them).
+3. **1.7, run the first digest**: `uv run python -m natalia.digest build --date 2026-10-16` (9 requests, ~24,000 input + ~4,000 output tokens, ~2 min), then `uv run python -m natalia.digest show --date 2026-10-16 --save`; judge the quality. 57 of the approved 60 calls remain if you'd like the agent to run it instead.
+4. **1.5, pick**: keep the local model (recommended), or an embedding API (account + key) if Khmer questions about English news matter more than the plan in `docs/decisions.md` (retrieve with an English rewording of Khmer questions, in 2.3/3.2).
+5. **1.4, judge** the topic counts and top stories (`docs/04-topics.md` step 3, or `uv run python -m natalia.topics top -v`), then tick 1.4 and 1.5 in ROADMAP if happy.
+6. **1.8, create the bot**: @BotFather `/newbot` → `TELEGRAM_BOT_TOKEN`; send it `/start`, read your chat ID → `TELEGRAM_OWNER_CHAT_ID`; then `uv run python -m natalia.bot send --date 2026-10-16`. The service (runtime worktree + `sudo systemctl enable --now natalia-bot`) after merging. Exact commands: `docs/07-bot.md`.
+7. **0.4, recommended (free)**: protect `main` on GitHub (*Settings → Branches*: require a pull request; no force pushes). Optional: delete the two no-op `Write(...)` lines from `.claude/settings.json` (the agent wasn't allowed to remove deny rules).
+
+**Open questions:**
+1. Gemini: why is the project denied, and is `gemini-3.8-flash` OK as the model (decision recorded in `docs/decisions.md`)?
+2. Khmer questions (1.5): is "retrieve with an English rewording" acceptable for 2.3/3.2, given it costs one extra small Gemini request per Khmer question?
+3. The morning digest is ~10–11 Telegram messages with summaries. Keep it, or send top stories plus one line per topic and leave the rest to `/economics` etc. (2.2)?
+4. Memory: your PyCharm remote-dev server held 2.1 GB RSS today, leaving ~700 MB free on the 4 GB server. If it's open at 07:00, the daily flow (~450 MB peak: collect, then embed) will lean on swap. Close it when not in use?
 
 **Run of 2026-10-16: 0.3 done (branch `task/0.3-docs`, from `origin/main` at a36391e, where 1.3 is merged). Stopping here.** Natalia's docs now follow cloud-ai-lab's pattern: `docs/STYLE.md` (adapted: goal → prerequisites → steps → verify, every step with command, real output, ✅/❌ and error/cause/fix, "Example from this build" blocks, adaptation notes, masking, plus which stage doc each task goes into); `docs/decisions.md` (10 decisions with alternatives); stage docs `00-project-setup.md`, `01-sources.md`, `02-database.md`, `03-collect.md`, written from this file's records; README with what Natalia is, an architecture diagram and a docs table; CLAUDE.md rule 5 under "How to work a task": after each task, update the matching stage doc in STYLE.md format. 0.3 added to ROADMAP (unticked). Docs only: no code changed, no sudo, no LLM calls, no money spent. Fresh read-only checks for the verify sections: 67 tests pass, 66/66 feeds work, 1,863 articles, 0 headlines stored twice.
 
@@ -342,7 +367,7 @@ $ git push -u origin task/0.3-docs
 
 ## 0.4 — Deny-rule check
 - **Branch:** `task/0.4-deny-check` (from `origin/main` at 993e652, where 0.3 is merged)
-- **State:** done, committed and pushed; waiting for review and merge
+- **State:** done, merged to `main` (PR #9)
 - **Done:** every deny rule from 0.2 checked live in a session started in `~/projects/natalia`, with harmless probes (`--help`, `--dry-run`, a decoy `.env` with fake content): all block. 9 gaps found and closed (re-tested: all now refused); `.claude/settings.json` has 81 rules (was 35). `test_settings_deny_rules` checks the new rules too. ROADMAP: 0.3 and 1.3 ticked, task 0.4 added, stage-doc names per the human's decision (each task names its doc with `→`; a phase's "Document" task completes its stage docs). STYLE.md's task → doc table extended. Stage doc: `docs/00-project-setup.md` step 6b. Decision added to `docs/decisions.md`.
 - **Next:** 1.4.
 - **Human must:** (1) review and merge. (2) Recommended, free: protect `main` on GitHub (*Settings → Branches → Add branch protection rule*, pattern `main`, tick "Require a pull request before merging"; force pushes and deletion are then blocked by default). That's the backstop the deny rules can't be. (3) Optional: delete the two no-op lines `"Write(**/.env)"` and `"Write(~/**/.env)"` from `.claude/settings.json` (the agent's removal was refused, see step 5).
@@ -1417,7 +1442,7 @@ dup title_norm: 0 | total: (1863, 732)
 
 ## 1.4 — Filter by topic and pick top stories
 - **Branch:** `task/1.4-filter` (stacked on `task/0.4-deny-check`)
-- **State:** done, committed and pushed; waiting for review and merge (after 0.4)
+- **State:** done, merged to `main` (PR #10); 🧑 judge the picks
 - **Done:** `natalia/topics.py`: keyword rules add topics (English + Khmer; kept in `articles.rule_topics` so rules can be re-run), the headline's script fixes `language`, articles of a day (24 h before 07:00 Asia/Phnom_Penh) are grouped into stories across sites, scored (coverage, recency, full text, not-news and not-Cambodia penalties) and the top 5 per topic picked (general first, each story once, ≤ 2 per site). Collector: records `also_seen` sites for dropped duplicate headlines. Migration `0002` applied on the real database. 101 tests pass. Stage doc `docs/04-topics.md`; decision "Top stories: coverage first, no LLM"; README, `02-database.md` and `03-collect.md` updated. No LLM calls.
 - **Next:** 1.5.
 - **Human must:** (1) review and merge after 0.4. (2) 🧑 ROADMAP's check: do the topic counts and today's top stories (below, and in `docs/04-topics.md` step 3) look sensible? Run `uv run python -m natalia.topics top -v` for any day to see why each story was picked.
@@ -1515,7 +1540,7 @@ All checks passed!
 
 ## 1.5 — Embeddings: evaluate the local model
 - **Branch:** `task/1.5-embeddings` (stacked on `task/1.4-filter`)
-- **State:** done (agent part), committed and pushed; 🧑 pick waiting
+- **State:** done (agent part), merged to `main` with PR #11; 🧑 pick waiting
 - **Done:** measured `multilingual-e5-small` three ways on this server (PyTorch, ONNX fp32, ONNX int8) plus `multilingual-e5-base` int8, on memory, speed and a 40-query labeled set over the 2,614 real articles (`config/embedding-eval.yaml`, `natalia/embed_eval.py`, `scripts/bench_embeddings.py`). Production code `natalia/embeddings.py` (ONNX int8 + SentencePiece; `embed`, `search`); all 2,614 articles embedded in the real database. Dependencies added: `onnxruntime`, `sentencepiece`, `huggingface-hub`, `numpy` (no PyTorch). 106 tests pass. Stage doc `docs/05-embeddings.md`; decision updated; README updated.
 - **Recommendation:** keep the local model, int8 ONNX. Numbers below.
 - **Next:** 1.7.
