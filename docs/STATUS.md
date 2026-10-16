@@ -4,7 +4,7 @@ Live progress for agent work. The agent updates this after every step and pushes
 
 ## Summary
 
-**Run of 2026-10-16 (second), unattended queue: 0.4 → 1.4 → 1.5 → 1.7 → 1.8, each on its own branch stacked on the previous one. In progress.** 0.4 done (`task/0.4-deny-check`): all deny rules block in a live session; 9 gaps closed. 1.4 done (`task/1.4-filter`): topic rules + top 5 stories per topic, 101 tests. Final summary goes here when the queue is done.
+**Run of 2026-10-16 (second), unattended queue: 0.4 → 1.4 → 1.5 → 1.7 → 1.8, each on its own branch stacked on the previous one. In progress.** 0.4 done (`task/0.4-deny-check`): all deny rules block in a live session; 9 gaps closed. 1.4 done (`task/1.4-filter`): topic rules + top 5 stories per topic, 101 tests. 1.5 done (`task/1.5-embeddings`): e5-small int8 on ONNX, 438 MB peak, all 2,614 articles embedded; 🧑 pick. Final summary goes here when the queue is done.
 
 **Run of 2026-10-16: 0.3 done (branch `task/0.3-docs`, from `origin/main` at a36391e, where 1.3 is merged). Stopping here.** Natalia's docs now follow cloud-ai-lab's pattern: `docs/STYLE.md` (adapted: goal → prerequisites → steps → verify, every step with command, real output, ✅/❌ and error/cause/fix, "Example from this build" blocks, adaptation notes, masking, plus which stage doc each task goes into); `docs/decisions.md` (10 decisions with alternatives); stage docs `00-project-setup.md`, `01-sources.md`, `02-database.md`, `03-collect.md`, written from this file's records; README with what Natalia is, an architecture diagram and a docs table; CLAUDE.md rule 5 under "How to work a task": after each task, update the matching stage doc in STYLE.md format. 0.3 added to ROADMAP (unticked). Docs only: no code changed, no sudo, no LLM calls, no money spent. Fresh read-only checks for the verify sections: 67 tests pass, 66/66 feeds work, 1,863 articles, 0 headlines stored twice.
 
@@ -1512,3 +1512,97 @@ All checks passed!
 - The human's PyCharm remote-dev server used **2.1 GB RSS** during this run (`ps`), leaving ~700 MB available on the 4 GB server. If it's open at 07:00, the daily flow will be squeezed into swap. Worth closing the IDE when not in use, or keeping it in mind for 1.9.
 - Science and markets have few free full-text feeds (Phys.org pages: 0/29 full text, Ars Technica 0/13, The Verge 0/10); more free science/markets feeds would improve those sections (a 1.1-style task).
 - Old Google News items (feeds disabled in 1.3) still show in the window for a few days, with ugly news.google.com links. They age out by themselves.
+
+## 1.5 — Embeddings: evaluate the local model
+- **Branch:** `task/1.5-embeddings` (stacked on `task/1.4-filter`)
+- **State:** done (agent part), committed and pushed; 🧑 pick waiting
+- **Done:** measured `multilingual-e5-small` three ways on this server (PyTorch, ONNX fp32, ONNX int8) plus `multilingual-e5-base` int8, on memory, speed and a 40-query labeled set over the 2,614 real articles (`config/embedding-eval.yaml`, `natalia/embed_eval.py`, `scripts/bench_embeddings.py`). Production code `natalia/embeddings.py` (ONNX int8 + SentencePiece; `embed`, `search`); all 2,614 articles embedded in the real database. Dependencies added: `onnxruntime`, `sentencepiece`, `huggingface-hub`, `numpy` (no PyTorch). 106 tests pass. Stage doc `docs/05-embeddings.md`; decision updated; README updated.
+- **Recommendation:** keep the local model, int8 ONNX. Numbers below.
+- **Next:** 1.7.
+- **Human must:** (1) 🧑 pick (ROADMAP 1.5): keep the local model (recommended) or fall back to an embedding API (needs an account and key; only if Khmer questions about English news matter more than the plan in `docs/decisions.md` can fix). (2) Review and merge after 1.4.
+
+| | ONNX int8 (recommended) | ONNX fp32 | PyTorch | e5-base int8 |
+|---|---|---|---|---|
+| Peak RSS (whole evaluation) | **407 MB** | 949 MB | 1,298 MB | 682 MB |
+| Speed per 100 articles / per query | **2.9 s / 4 ms** | 4.7 s / 7 ms | 5.1 s / 8 ms | 9.5 s / 7 ms |
+| Load | 0.8 s | 1.8 s | 8.8 s | 13.8 s |
+| hit@1 en→en / km→en / km→km / en→km | 1.00 / 0.40 / 0.90 / 0.20 | 1.00 / 0.50 / 0.90 / 0.20 | 1.00 / 0.50 / 0.90 / 0.20 | 1.00 / 0.30 / 0.70 / 0.20 |
+| MRR (40 queries) | 0.77 | 0.79 | 0.79 | 0.73 |
+
+<details><summary>Steps and output from this build</summary>
+
+**1. Branch** from `task/1.4-filter`. **Result:** ✅
+
+**2. Memory check before measuring.** Only ~718 MB available: the human's PyCharm remote-dev server held 2.1 GB RSS (see 1.4's notes). Measurements were run one at a time.
+```console
+$ free -m
+Mem:            3814        3096         177          16         805         718
+```
+**Result:** ⚠️ noted; every number below is RSS of the measured process only.
+
+**3. Throwaway venvs** (scratch folder, not the project) and the model files (free, MIT licence):
+```console
+$ uv venv venv-st && uv venv venv-onnx
+$ uv pip install --python venv-st/bin/python torch --index-url https://download.pytorch.org/whl/cpu
+$ uv pip install --python venv-st/bin/python sentence-transformers …
+torch 2.14.1+cpu st 6.1.0
+onnxruntime 1.31.0 tokenizers 0.23.3
+1.2G	venv-st
+74M	venv-onnx
+$ … snapshot_download('intfloat/multilingual-e5-small', allow_patterns=[…])
+real	0m26.901s
+1.1G	/home/<user>/.cache/huggingface
+```
+CPU: `AMD EPYC-Genoa Processor` with `avx512_vnni`, so the repo's `model_qint8_avx512_vnni.onnx` runs natively. **Result:** ✅
+
+**4. Labeled set** (`config/embedding-eval.yaml`): 40 queries, Khmer ones written by the agent. Relevant articles by headline regex, checked by eye with `--show-relevant`. ❌ first: a Khmer pattern matched nothing. **Cause:** Khmer Times' zero-width spaces between words. **Fix:** match cleaned headlines. Two loose labels tightened ("coral" → "coral.*extinction", "Starknet" → "Starknet.*vote"). **Result:** ✅
+
+**5. ONNX int8, first try:** good quality, but peak **681 MB**. Per-phase measurement: `tokenizer.json` via `tokenizers` = +287 MB. SentencePiece = +63 MB with identical ids on all 2,616 texts. **Fix:** SentencePiece; `tokenizers` removed.
+```console
+== onnx int8
+load 0.8 s; 2614 articles embedded at 2.9 s per 100; 4 ms per query
+memory: 284 MB now, 407 MB peak (RSS)
+set       n  hit@1  hit@5    MRR
+en-en    15   1.00   1.00   1.00
+km-en    10   0.40   0.60   0.46
+km-km    10   0.90   1.00   0.95
+en-km     5   0.20   0.40   0.34
+all      40   0.72   0.82   0.77
+max |diff| between tokenizers and sentencepiece vectors: 0.0
+```
+**Result:** ✅
+
+**6. ONNX fp32, PyTorch, e5-base int8:** see the table above and `docs/05-embeddings.md` steps 3–4.
+```console
+cosine(fp32 onnx, pytorch): min 1.0000 mean 1.0000
+cosine(int8 onnx, fp32 onnx): min 0.9916 mean 0.9963
+```
+**Result:** ✅
+
+**7. Store the vectors (production path):**
+```console
+$ /usr/bin/time -f "wall %e s, max RSS %M KB" uv run python -m natalia.embeddings embed
+model intfloat/multilingual-e5-small:int8 loaded in 0.9 s
+embedded 2614 articles in 75 s, 2.9 s per 100 articles
+memory: 312 MB now, 438 MB peak
+$ uv run python -m natalia.embeddings embed
+embedded 0 articles in 0 s
+```
+**Result:** ✅ Daily flow estimate: collect (peak 152 MB) and embed (peak ~440 MB) run one after the other, so the flow's peak stays ~450 MB, inside the 700 MB budget.
+
+**8. Search tried** in English (5/5 on-topic) and Khmer (the Khmer article first; English ones on the same story missing from the top 5). **Result:** ⚠️ as measured: see the decision's plan for Khmer questions.
+
+**9. Tests and lint.**
+```console
+$ uv run pytest -q
+106 passed in 2.10s
+$ uv run ruff check .
+All checks passed!
+```
+**Result:** ✅
+</details>
+
+**Noticed, not done (out of scope):**
+- `.env.example` has `EMBEDDING_MODEL=intfloat/multilingual-e5-small`, but no code reads it (the model is a constant in `natalia/embeddings.py`, and the stored `model` column records it). Remove the line, or make the code read it, when convenient.
+- `huggingface-hub` warns about unauthenticated requests on first download; harmless (files are cached and later loads don't touch the network).
+- The throwaway venvs and the e5-base download (~1.6 GB) are in the agent's scratch folder and `~/.cache/huggingface`; the e5-base files can be deleted: `huggingface-cli delete-cache` or remove `~/.cache/huggingface/hub/models--intfloat--multilingual-e5-base`.

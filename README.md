@@ -38,7 +38,7 @@ Every day it collects news on nine topics (economics, world politics, technology
 | Feeds | `feedparser`, `config/sources.yaml` | 87 feeds listed, 66 enabled; paywalled ones give headline + excerpt + link only |
 | Article text | `trafilatura` | full text where robots.txt and the site allow it |
 | Database | PostgreSQL 16 + pgvector | articles, embeddings, summaries, digests; localhost only |
-| Embeddings | `multilingual-e5-small` on CPU (to be confirmed in 1.5) | search across English and Khmer, without an API |
+| Embeddings | `multilingual-e5-small`, int8, ONNX Runtime on CPU (measured in 1.5) | search across English and Khmer, without an API |
 | LLM | Gemini Flash, free tier, via `google-genai` | summaries, "why it matters", answers; all calls through `natalia/llm.py` |
 | Scheduling | cloud-ai-lab's self-hosted Prefect | the daily flow at 07:00 Asia/Phnom_Penh |
 | Telegram | Natalia's own bot, long polling | push digest, commands, questions, conversation |
@@ -62,6 +62,7 @@ Design rules:
 | [docs/02-database.md](docs/02-database.md) ✅ | PostgreSQL + pgvector install, tuning, schema, memory |
 | [docs/03-collect.md](docs/03-collect.md) ✅ | The collector, its politeness rules, real runs and problems |
 | [docs/04-topics.md](docs/04-topics.md) ✅ | Topic rules and the day's top 5 stories per topic |
+| [docs/05-embeddings.md](docs/05-embeddings.md) 🧑 | The local embedding model: memory, speed and quality measured |
 | [docs/PLAN.md](docs/PLAN.md) | What Natalia should do (the source of truth for features) |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | The task list for humans and agents, and the decisions made |
 | [docs/STATUS.md](docs/STATUS.md) | Live progress: every step of every task, with real output |

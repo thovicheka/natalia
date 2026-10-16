@@ -1,0 +1,59 @@
+# Labeled retrieval set for task 1.5: does a query find the right stored articles?
+#
+# corpus: the articles collected before `corpus_until` (later articles are ignored, so the
+#   numbers stay comparable as the database grows).
+# Each query: q (the text someone would ask), set (what it tests), relevant (regexes,
+#   case-insensitive, matched against article headlines in the corpus; an article matching any
+#   of them is a right answer). The matches were checked by eye on 2026-10-16.
+#
+# Sets: en-en (English query, English articles), km-en (Khmer query, English articles: the
+#   cross-language case PLAN.md needs), km-km (Khmer query, Khmer articles), en-km (English query,
+#   Khmer articles). Khmer queries were written for this file (not machine-translated).
+#
+# Run: uv run python -m natalia.embed_eval
+corpus_until: "2026-10-16T07:00:00Z"
+queries:
+  # --- English -> English
+  - {set: en-en, q: "UK economy grew in August", relevant: ["UK economy.*(grow|defies)", "UK Unexpectedly Grows", "surprise UK growth"]}
+  - {set: en-en, q: "school building collapse kills children in Pakistan", relevant: ["Pakistan.*(roof|school)", "school roof collapse"]}
+  - {set: en-en, q: "Ukraine resumes attacks on Russian oil refineries", relevant: ["(Ukraine|Zelensk).*refiner", "refiner.*(Ukraine|Zelensk)"]}
+  - {set: en-en, q: "new bridge between North Korea and China opens", relevant: ["North Korea.*bridge", "bridge.*North Korea", "China.*North Korea.*bridge"]}
+  - {set: en-en, q: "ships on fire in the Black Sea", relevant: ["Black Sea"]}
+  - {set: en-en, q: "Houthi missile attack on Yemen's presidential palace", relevant: ["Houthi.*(palace|Aden)", "presidential palace"]}
+  - {set: en-en, q: "teenager arrested over plot to attack a Hindu temple", relevant: ["Hindu temple"]}
+  - {set: en-en, q: "FTC investigation into OpenAI and Anthropic", relevant: ["FTC.*(OpenAI|Open AI|Anthropic)"]}
+  - {set: en-en, q: "Meta releases a huge open AI model that runs on Mac computers", relevant: ["Meta.*(open-weight|Macs)"]}
+  - {set: en-en, q: "Jalen Hurts injury", relevant: ["\\bHurts\\b.*(clot|out)", "Jalen Hurts"]}
+  - {set: en-en, q: "tennis player banned for match fixing", relevant: ["match-fixing|match fixing"]}
+  - {set: en-en, q: "coral reefs at risk of extinction", relevant: ["coral.*extinction"]}
+  - {set: en-en, q: "prosecutors take down servers of a crypto scam network", relevant: ["Brooklyn.*(scam|servers|crypto|fraud)"]}
+  - {set: en-en, q: "Starknet vote on leaving Ethereum", relevant: ["Starknet.*vote"]}
+  - {set: en-en, q: "Trump cancels livestream of an execution", relevant: ["(livestream|firing squad).*execution|execution.*(livestream|firing squad)"]}
+  # --- Khmer -> English (and the same story in Khmer, where one exists)
+  - {set: km-en, q: "សេដ្ឋកិច្ចចក្រភពអង់គ្លេសកើនឡើងក្នុងខែសីហា", relevant: ["UK economy.*(grow|defies)", "UK Unexpectedly Grows", "surprise UK growth"]}
+  - {set: km-en, q: "អគារសាលារៀនដួលរលំសម្លាប់សិស្សនៅប៉ាគីស្ថាន", relevant: ["Pakistan.*(roof|school)", "school roof collapse"]}
+  - {set: km-en, q: "អ៊ុយក្រែនវាយប្រហាររោងចក្រចម្រាញ់ប្រេងរបស់រុស្ស៊ី", relevant: ["(Ukraine|Zelensk).*refiner", "refiner.*(Ukraine|Zelensk)", "រោងចក្រ\\s*ចម្រាញ់ប្រេង"]}
+  - {set: km-en, q: "ស្ពានថ្មីរវាងកូរ៉េខាងជើង និងចិន បើកដំណើរការ", relevant: ["North Korea.*bridge", "bridge.*North Korea", "China.*North Korea.*bridge"]}
+  - {set: km-en, q: "នាវាឆេះនៅសមុទ្រខ្មៅ", relevant: ["Black Sea"]}
+  - {set: km-en, q: "ក្រុមហ៊ូទីបាញ់មីស៊ីលលើវិមានប្រធានាធិបតីយេម៉ែន", relevant: ["Houthi.*(palace|Aden)", "presidential palace", "ហ៊ូទី"]}
+  - {set: km-en, q: "កីឡាករវាយកូនបាល់ត្រូវហាមឃាត់២៤ឆ្នាំ ពីបទរៀបចំលទ្ធផលប្រកួត", relevant: ["match-fixing|match fixing"]}
+  - {set: km-en, q: "ការស៊ើបអង្កេតរបស់ FTC លើក្រុមហ៊ុន OpenAI និង Anthropic", relevant: ["FTC.*(OpenAI|Open AI|Anthropic)"]}
+  - {set: km-en, q: "លោក ត្រាំ លុបចោលការផ្សាយផ្ទាល់ការប្រហារជីវិត", relevant: ["(livestream|firing squad).*execution|execution.*(livestream|firing squad)", "ផ្សាយផ្ទាល់.*ប្រហារជីវិត"]}
+  - {set: km-en, q: "កម្ពុជាច្រានចោលការអះអាងរបស់ថៃពីព្រំដែននៅអង្គការសហប្រជាជាតិ", relevant: ["Cambodia.*(rejects|rebuts).*Thai", "កម្ពុជា-ថៃ.*សហប្រជាជាតិ"]}
+  # --- Khmer -> Khmer (and the English version of the story, where one exists)
+  - {set: km-km, q: "ដំរីព្រៃជាន់កុមារស្លាប់នៅខេត្តព្រះវិហារ", relevant: ["ហ្វូងដំរីព្រៃ", "wild elephants"]}
+  - {set: km-km, q: "ការដុតស្នាក់ការដែនជម្រកសត្វព្រៃលំផាត់", relevant: ["ដែនជម្រកសត្វព្រៃលំផាត់", "burning of wildlife sanctuary"]}
+  - {set: km-km, q: "កម្ពុជានិងវៀតណាមចង់បានពាណិជ្ជកម្មទ្វេភាគី២០ពាន់លានដុល្លារ", relevant: ["កម្ពុជា និង\\s*វៀតណាម"]}
+  - {set: km-km, q: "កម្ពុជារកចំណូលពីការនាំចេញសំបកកង់", relevant: ["សំបកកង់"]}
+  - {set: km-km, q: "ផ្សែងពុលពីភ្លើងឆេះព្រៃនៅឥណ្ឌូណេស៊ី", relevant: ["ឥណ្ឌូណេស៊ី"]}
+  - {set: km-km, q: "ការលុបឈ្មោះអ្នកបោះឆ្នោតនៅឥណ្ឌា", relevant: ["អ្នកបោះឆ្នោត.*ឥណ្ឌា"]}
+  - {set: km-km, q: "ពិធីគោរពព្រះវិញ្ញាណក្ខន្ធព្រះបរមរតនកោដ្ឋ ខួប១៤ឆ្នាំ", relevant: ["ព្រះ\\s*បរម\\s*រតន\\s*កោដ្ឋ"]}
+  - {set: km-km, q: "ប្រាសាទមេបុណ្យខាងលិចនឹងបើកឱ្យភ្ញៀវទេសចរទស្សនា", relevant: ["ប្រាសាទមេបុណ្យ"]}
+  - {set: km-km, q: "សំណល់ប្លាស្ទិកក្នុងទន្លេក្រោយបុណ្យភ្ជុំបិណ្ឌ", relevant: ["ប្លាស្ទិក"]}
+  - {set: km-km, q: "ធនាគារជាតិព្រមានពីការបើកគណនីជួញដូរឧបករណ៍និស្សន្ទ", relevant: ["ឧបករណ៍\\s*និស្សន្ទ"]}
+  # --- English -> Khmer
+  - {set: en-km, q: "Cambodia and Vietnam aim for 20 billion dollars in bilateral trade", relevant: ["កម្ពុជា និង\\s*វៀតណាម"]}
+  - {set: en-km, q: "plastic waste in rivers after the Pchum Ben festival", relevant: ["ប្លាស្ទិក"]}
+  - {set: en-km, q: "toxic haze from forest fires in Indonesia", relevant: ["ឥណ្ឌូណេស៊ី", "Indonesia.*(haze|fire)"]}
+  - {set: en-km, q: "India deletes millions of voters from the electoral roll", relevant: ["អ្នកបោះឆ្នោត.*ឥណ្ឌា", "India.*vot"]}
+  - {set: en-km, q: "Cambodia earns 1.7 billion dollars from tyre exports", relevant: ["សំបកកង់", "(tyre|tire).*export"]}
