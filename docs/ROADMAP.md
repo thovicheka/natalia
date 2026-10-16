@@ -57,6 +57,10 @@ The embedding model is the biggest risk: PyTorch alone can take several hundred 
   - 🤖 `.claude/settings.json` with `permissions.deny` rules like cloud-ai-lab's (`sudo`, push to main, force-push, `git merge`, `rm -rf`, reading `.env`, `prefect deployment run`).
   - **Done when:** `uv run pytest` passes and a denied command is blocked.
 
+- [ ] **0.3 Documentation** — 🤖
+  - 🤖 `docs/STYLE.md` (adapted from cloud-ai-lab's), `docs/decisions.md`, stage docs for what's done (`00-project-setup.md`, `01-sources.md`, `02-database.md`, `03-collect.md`) written from STATUS.md's records, README with the architecture and a docs table, and a CLAUDE.md rule: after each task, update the matching stage doc.
+  - **Done when:** the docs are on branch `task/0.3-docs`, ready for review.
+
 ---
 
 ## Phase 1 — Daily digest

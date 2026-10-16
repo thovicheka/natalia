@@ -4,6 +4,13 @@ Live progress for agent work. The agent updates this after every step and pushes
 
 ## Summary
 
+**Run of 2026-10-16: 0.3 done (branch `task/0.3-docs`, from `origin/main` at a36391e, where 1.3 is merged). Stopping here.** Natalia's docs now follow cloud-ai-lab's pattern: `docs/STYLE.md` (adapted: goal → prerequisites → steps → verify, every step with command, real output, ✅/❌ and error/cause/fix, "Example from this build" blocks, adaptation notes, masking, plus which stage doc each task goes into); `docs/decisions.md` (10 decisions with alternatives); stage docs `00-project-setup.md`, `01-sources.md`, `02-database.md`, `03-collect.md`, written from this file's records; README with what Natalia is, an architecture diagram and a docs table; CLAUDE.md rule 5 under "How to work a task": after each task, update the matching stage doc in STYLE.md format. 0.3 added to ROADMAP (unticked). Docs only: no code changed, no sudo, no LLM calls, no money spent. Fresh read-only checks for the verify sections: 67 tests pass, 66/66 feeds work, 1,863 articles, 0 headlines stored twice.
+
+**Human must:**
+1. **0.3:** review and merge `task/0.3-docs`, then tick 0.3 in ROADMAP. Check the Gemini-key step in `docs/00-project-setup.md` (step 7): it is written from your report, not from a transcript.
+2. Decide how later stage docs are named (open question 1 under 0.3).
+3. Still open: the 0.2 deny-rule check; tick 1.3 in ROADMAP (merged as PR #7); Phase 1 🧑 steps 1.5, 1.7, 1.8, 1.9.
+
 **Run of 2026-10-15 (ninth): 1.3 headline fix (same branch `task/1.3-collect`). Stopping here.** Near-identical headlines now merge only across different sites (the article's host without `www.`); exact matches always merge. Tests added for the two real wrong merges (Wired movies/TV shows, The Athletic Oct 14/15 puzzle hints: same site → kept apart) and a real cross-source pair (BBC/Guardian Eritreans story → merged). **67 tests pass.** One collection (run 6): 66 feeds, 23 new articles (5 full text, 18 excerpt-only), 22 s, peak 105 MB; **both wrongly dropped articles are restored** (still in their feeds), the cross-source pair still merges, no headline stored twice. Database: 1,863 articles, 732 full text. Also: the 0.2 check is rewritten so it can't expose `.env` (see 0.2). No sudo, no accounts, no LLM calls, no money spent.
 
 **Human must:**
@@ -248,6 +255,88 @@ $ git push -u origin task/0.2-python-setup
 ```
 **Result:** ✅
 </details>
+
+## 0.3 — Documentation
+- **Branch:** `task/0.3-docs`
+- **State:** done, committed and pushed; waiting for the human's review and merge
+- **Done:** `docs/STYLE.md`, `docs/decisions.md`, `docs/00-project-setup.md`, `docs/01-sources.md`, `docs/02-database.md`, `docs/03-collect.md`, README, a CLAUDE.md rule, 0.3 in ROADMAP.
+- **Next:** each later task updates its stage doc (new CLAUDE.md rule 5).
+- **Human must:** review and merge; tick 0.3.
+
+<details><summary>Steps and output from this build</summary>
+
+**1. Branch from `origin/main`.** 1.3 was merged (PR #7).
+```console
+$ git fetch origin
+   7fbcaab..a36391e  main       -> origin/main
+$ git checkout -b task/0.3-docs origin/main
+Switched to a new branch 'task/0.3-docs'
+$ git branch --unset-upstream    # so a bare `git push` can never target main
+```
+**Result:** ✅
+
+**2. Read the sources** (read-only): CLAUDE.md, ROADMAP.md, STATUS.md, PLAN.md, `~/projects/cloud-ai-lab/docs/STYLE.md`, and for shape only cloud-ai-lab's README, `decisions.md` and `01-server-setup.md`. Nothing in cloud-ai-lab was changed.
+**Result:** ✅
+
+**3. `docs/STYLE.md`.** cloud-ai-lab's guide adapted: the stage-doc shape and outcome recording as before; new for Natalia: STATUS.md (live log) vs stage docs (clean how-to) vs decisions.md, a task → stage-doc table, a Tasks/Status line under each title, 🧑/🤖 step marks, "never write output that wasn't seen" ("reported by the human" instead), masking of chat IDs, tokens and DB passwords, no command that prints `.env`, Khmer quoted as is, UTC vs Asia/Phnom_Penh.
+**Result:** ✅
+
+**4. `docs/decisions.md`.** Gemini free tier vs Anthropic API; local embeddings; PostgreSQL + pgvector; the lab's Prefect; Tailscale-only website; own Telegram bot; paywall policy; robots.txt policy incl. dropping Google News; topics as a list; cross-site-only near-identical headlines. Each with why, alternatives and trade-offs.
+**Result:** ✅
+
+**5. Fresh read-only checks** for the stage docs' "Verify it worked" blocks (no writes; the feed check is one free GET per feed):
+```console
+$ uv run pytest -q
+67 passed in 0.88s
+$ uv run python -m natalia.db status
+PostgreSQL 16.15 (Ubuntu 16.15-0ubuntu0.24.04.1), pgvector 0.6.0
+applied migrations: 0001_initial_schema
+pending migrations: none
+$ systemctl show postgresql@16-main -p MemoryCurrent -p MemoryPeak
+MemoryCurrent=27631616
+MemoryPeak=71983104
+$ time uv run python -m natalia.feeds -n 0      # 2026-10-16 05:23 UTC
+(…)
+66/66 feeds working
+real	1m23.545s
+exit=0
+$ (verify query from docs/03-collect.md)
+articles, full text, Khmer: (1863, 732, 22)
+headlines stored twice: 0
+```
+**Result:** ✅ Post Khmer works again (HTTP 500 in collection runs 3–6 yesterday).
+
+**6. Stage docs** written from this file's records (00: tasks 0.1, 0.2, 1.6; 01: 1.1 + its 1.3 changes; 02: 1.2; 03: 1.3 runs 1–6 and its four problems: NPR user-agent stall, Google News robots.txt, slow refusing sites, false headline duplicates). The Gemini-key step (AI Studio "Unable to create API key", fixed by creating a Google Cloud project first, then the models-list test) is marked "reported by the human": there is no transcript, and the agent didn't run it.
+**Result:** ✅
+
+**7. README, CLAUDE.md, ROADMAP.** README: what Natalia is, architecture diagram, parts table, design rules, docs table. CLAUDE.md: new step 5 in "How to work a task" (update the matching stage doc in STYLE.md format, not only STATUS.md), the doc-style line now points to `docs/STYLE.md`, and decisions.md and the stage docs are in the reading list. ROADMAP: task 0.3 added under Stage 0, unticked.
+**Result:** ✅
+
+**8. Checks:** every relative link and `#anchor` in README and `docs/*.md` resolves (script); a grep for IPs, emails and key prefixes found only package version numbers and masked examples; tests unchanged.
+```console
+$ uv run pytest -q
+67 passed in 0.96s
+links checked
+anchors checked
+```
+**Result:** ✅
+
+**9. Commit and push**
+```console
+$ git log --oneline -1
+54542a1 Task 0.3: docs like cloud-ai-lab's: STYLE.md, decisions.md, stage docs 00-03 from STATUS records, README with architecture and docs table, CLAUDE.md rule to update stage docs
+$ git push -u origin task/0.3-docs
+ * [new branch]      task/0.3-docs -> task/0.3-docs
+```
+**Result:** ✅
+</details>
+
+### Open questions for the human
+1. **Stage-doc names clash with ROADMAP.** This task named the docs by build stage (`01-sources`, `02-database`, `03-collect`), but ROADMAP's later tasks name phase docs `01-daily-digest.md` (1.10), `02-conversation.md` (2.5), `03-language.md` (3.3), `04-voice.md`, `05-website.md`, which reuse the numbers. Proposal: keep numbering by build stage (e.g. 1.4 → `04-topics.md`, 1.5 → `05-embeddings.md`, 1.7 → `06-digest.md`, …) and turn 1.10/2.5/… into "update the stage docs of this phase". ROADMAP left unchanged until you decide; `docs/STYLE.md` says to follow ROADMAP's name when a task gives one.
+
+**Noticed, not done (out of scope):**
+- This session was started in `~/projects/natalia`, so Natalia's deny rules were likely the ones loaded; the 0.2 live check could be done in such a session. Not attempted here (not this task).
+- PLAN.md's tech stack still says "Scheduling: GitHub Actions or cron" (noted in 0.1); `docs/decisions.md` records why it's Prefect.
 
 ## 1.6 — Gemini API key
 - **Branch:** none (🧑 step)
@@ -757,7 +846,7 @@ MemoryPeak=59351040
 
 ## 1.3 — Collect and clean
 - **Branch:** `task/1.3-collect`
-- **State:** done, committed and pushed; waiting for the human's review and merge
+- **State:** done, merged to `main` (PRs #6 and #7, a36391e)
 - **Done:** the collector, its tests, four real runs (numbers below). "Done when" holds: a second run stores no article twice, and a failing feed (Post Khmer, HTTP 500 in runs 3–5) doesn't stop the others. Then the human's decisions (see "Decisions applied" below): Google News feeds disabled, Engadget and Rest of World added, 99 junk rows deleted, honest user agent in `feeds.py`; run 5.
 - **Next:** 1.4 (filter by topic) adds rule-based topics to the stored articles.
 - **Human must:** review and merge; tick 1.3.
@@ -1185,6 +1274,6 @@ dup title_norm: 0 | total: (1863, 732)
 **Noticed, not done (out of scope):**
 - ~~`natalia/feeds.py` still sends the `Mozilla/5.0` user agent.~~ Fixed (step 16).
 - ~~Google News feeds are slow on Google's side.~~ Moot: disabled.
-- Post Khmer returned HTTP 500 in runs 3, 4 and 5 (worked in runs 1–2 and in 1.1). If it lasts, `uv run python -m natalia.feeds` will show it; consider disabling it.
+- ~~Post Khmer returned HTTP 500 in runs 3, 4 and 5 (worked in runs 1–2 and in 1.1). If it lasts, `uv run python -m natalia.feeds` will show it; consider disabling it.~~ Working again on 2026-10-16 (feed check in 0.3).
 - The first cold run took 22.9 min before the fixes. A cold run with today's code should be ~6–7 min (the Guardian queue, ~160 pages at ~2.4 s, is the longest), but that's an estimate: runs 2–4 had little new to fetch. The first 07:00 run in 1.9 will show.
 - Wired's coupon posts and The Guardian's reviews are stored like news; topic filtering (1.4) is the place to drop them.

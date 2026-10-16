@@ -10,12 +10,14 @@ It is a **separate project** from `~/projects/cloud-ai-lab`. It only shares the 
 
 Read these before starting work:
 
-- `README.md` — one-line overview
+- `README.md` — what Natalia is, the architecture, and a table of all docs
 - `docs/PLAN.md` — what the human wants. The source of truth for features; don't add features that aren't in it.
 - `docs/ROADMAP.md` — **the task list**, plus the decisions already made (LLM, embeddings, database, scheduling…). Work on one task at a time, by its ID (e.g. `1.3`). Don't swap a decided tool without asking.
 - `docs/STATUS.md` — live progress; what's done, blocked, and waiting on the human.
 - `docs/TASK-TEMPLATE.md` — the format the human uses to give you a task (Context / Branch / Job / Decisions / Limits / Finish).
-- Doc style: follow `~/projects/cloud-ai-lab/docs/STYLE.md` (stage-doc shape, placeholders, "Example from this build" blocks with real output, masked secrets).
+- `docs/decisions.md` — why each tool and rule was chosen, and the alternatives.
+- `docs/STYLE.md` — how docs are written (stage-doc shape, placeholders, "Example from this build" blocks with real output, masked secrets), and which stage doc each task goes into.
+- Stage docs `docs/NN-*.md` — the clean how-to for each finished stage.
 
 ## The machine you're on
 
@@ -45,8 +47,9 @@ Read these before starting work:
 1. Read the task in `docs/ROADMAP.md`: its goal, which steps are 🧑 (human) vs 🤖 (you), and its "done when."
 2. If a 🧑 step isn't done, record it in `docs/STATUS.md` and move to the next task.
 3. Create the branch, do the 🤖 steps, test what you can without spending money.
-4. **For every step, record the command, its real output, the result (✅/❌), and for failures the error, cause, and fix** in `docs/STATUS.md` under the task (and in the stage doc when a task says "Document"). Mask secrets, IPs, and emails.
-5. Finish with a short report: what changed, how you tested it, what the human must do next (commands to run, keys to add, estimated cost), and any open questions. Commit and push to your task branch (never main).
+4. **For every step, record the command, its real output, the result (✅/❌), and for failures the error, cause, and fix** in `docs/STATUS.md` under the task. Mask secrets, IPs, and emails.
+5. **After each task, update the matching stage doc** (`docs/NN-*.md`, see the table in `docs/STYLE.md`) in `docs/STYLE.md` format, not only `docs/STATUS.md`: goal → prerequisites → steps → verify, with the real output, ✅/❌ results and the problems hit (error, cause, fix) in "Example from this build" blocks. Create the doc if it doesn't exist; if the task changes an earlier stage, update that doc too. Record a new or changed decision in `docs/decisions.md`.
+6. Finish with a short report: what changed, how you tested it, what the human must do next (commands to run, keys to add, estimated cost), and any open questions. Commit and push to your task branch (never main).
 
 ## Working unattended
 
