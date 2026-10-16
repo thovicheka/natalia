@@ -297,3 +297,7 @@ headlines stored twice: 0
 ```
 **Result:** ✅ 1,863 articles, 732 with full text, 22 in Khmer; 66 of 87 sources enabled.
 </details>
+
+## Later changes
+- **Task 1.4:** when the collector drops an identical or near-identical headline from another site, it now records that site in the kept article's `also_seen` (migration `0002`). The top-stories score counts those sites as coverage. Test: `test_collect_twice_stores_each_article_once` checks `also_seen == ["other.test"]` after both runs. See [Stage 4](04-topics.md).
+- **Run 7 (2026-10-16, before 1.4's tagging):** 66 feeds, 0 failed, 2,064 entries → 751 stored (439 full text, 312 excerpt-only), 482 URL and 9 headline duplicates, 879 s, 598 HTTP requests, peak 152 MB. The slow part was full text from a few sites (The Guardian 85 articles in 487 s, France 24 in 406 s, DW in 220 s), one request at a time per site.
