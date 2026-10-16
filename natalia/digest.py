@@ -215,12 +215,14 @@ def build(
     max_requests: int = MAX_REQUESTS,
     gap_s: float = REQUEST_GAP_S,
     dry_run: bool = False,
+    no_llm: bool = False,
     model: str = llm.DEFAULT_MODEL,
     log=print,
     sleep=time.sleep,
 ) -> BuildReport:
     """Pick the day's stories, summarize those without a summary (one request per topic), store
-    everything. A failed topic is logged and skipped; its stories are listed in `missing`."""
+    everything. A failed topic is logged and skipped; its stories are listed in `missing`.
+    `no_llm`: store the picks only (a later build adds the summaries)."""
     end = day_window(day)[1]
     picks, _, _ = top_stories(conn, end, per_topic=per_topic)
     if topics:
@@ -232,10 +234,14 @@ def build(
     report.reused = len(done)
     articles = load_articles(conn, lead_ids)
     llm.set_max_calls(max_requests)
+    requests_before = llm.usage.requests
     first = True
     for topic in DIGEST_ORDER:
         todo = [articles[s.lead.id] for s in picks[topic] if s.lead.id not in done]
         if not todo:
+            continue
+        if no_llm:
+            report.missing += [a.id for a in todo]
             continue
         prompt = build_prompt(todo)
         if dry_run:
@@ -259,7 +265,6 @@ def build(
             if "cap reached" in str(e):
                 break
             continue
-        report.requests += r.requests
         report.model = r.model
         report.input_tokens += r.input_tokens
         report.output_tokens += r.output_tokens + r.thinking_tokens
@@ -278,6 +283,7 @@ def build(
             f"{r.input_tokens} in / {r.output_tokens} out tokens"
         )
     if not dry_run:
+        report.requests = llm.usage.requests - requests_before  # failed requests count too
         store_digest(conn, day, language, picks, report)
     return report
 
@@ -344,13 +350,19 @@ def detail(a: ArticleText) -> str:
 
 
 def to_markdown(d: Digest) -> str:
+    done = sum(1 for it in d.items if it.summary)
+    if done:
+        llm_note = (
+            f"Summaries by {d.model} for {done} of {len(d.items)} stories ({d.requests} requests, "
+            f"{d.input_tokens:,} input + {d.output_tokens:,} output tokens)."
+        )
+    else:
+        llm_note = f"Summaries pending: none generated yet for these {len(d.items)} stories."
     lines = [
         f"# Natalia daily digest — {d.day:%A %d %B %Y}",
         "",
-        f"News from the 24 hours before 07:00 Asia/Phnom_Penh. Summaries by {d.model} "
-        f"({d.requests} requests, {d.input_tokens:,} input + {d.output_tokens:,} output tokens). "
-        "Each summary sits under the source's own headline, link and text; read the source "
-        "to check it.",
+        f"News from the 24 hours before 07:00 Asia/Phnom_Penh. {llm_note} Each summary sits "
+        "under the source's own headline, link and text; read the source to check it.",
     ]
     for topic, items in d.by_topic().items():
         if not items:
@@ -370,7 +382,7 @@ def to_markdown(d: Digest) -> str:
                     f"**Why it matters:** {it.why_it_matters}",
                 ]
             else:
-                lines += ["*(no summary: the request for this topic failed)*"]
+                lines += ["*(summary pending: not generated yet)*"]
             lines.append("")
     return "\n".join(lines).rstrip() + "\n"
 
@@ -383,6 +395,8 @@ def main(argv: list[str] | None = None) -> int:
     b.add_argument("--topics", help="comma-separated topics (default: all)")
     b.add_argument("--max-requests", type=int, default=MAX_REQUESTS)
     b.add_argument("--dry-run", action="store_true", help="show the requests, send nothing")
+    b.add_argument("--no-llm", action="store_true", help="store the picks without summaries")
+    b.add_argument("--model", default=llm.DEFAULT_MODEL, help="LLM model (default: %(default)s)")
     s = sub.add_parser("show", help="print a stored digest as Markdown")
     s.add_argument("--date", type=date.fromisoformat)
     s.add_argument("--save", action="store_true", help=f"also write it to {DIGEST_DIR}/")
@@ -399,7 +413,13 @@ def main(argv: list[str] | None = None) -> int:
             topics = args.topics.split(",") if args.topics else None
             t0 = time.monotonic()
             r = build(
-                conn, day, topics=topics, max_requests=args.max_requests, dry_run=args.dry_run
+                conn,
+                day,
+                topics=topics,
+                max_requests=args.max_requests,
+                dry_run=args.dry_run,
+                no_llm=args.no_llm,
+                model=args.model,
             )
             print(
                 f"\ndigest {day}: {r.stories} stories, {r.reused} summaries reused, "

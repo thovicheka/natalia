@@ -111,7 +111,7 @@ def test_missing_answers_are_reported_and_shown(scratch, day_articles):
     r = dg.build(scratch, DAY, log=lambda *_: None, sleep=lambda s: None)
     assert r.missing == [skip]
     md = dg.to_markdown(dg.load_digest(scratch, DAY))
-    assert "no summary" in md
+    assert "summary pending" in md
 
 
 def test_dry_run_calls_nothing(scratch, day_articles):
@@ -152,3 +152,13 @@ def test_prompt_holds_news_only():
     assert p.count("id: 7") == 1 and "full text (start)" in p
     assert len(p) < dg.TEXT_CHARS + 300
     assert "https://" not in p  # links aren't needed by the model
+
+
+def test_no_llm_stores_the_picks_only(scratch, day_articles):
+    llm.use_client(FakeLLM())
+    r = dg.build(scratch, DAY, no_llm=True, log=lambda *_: None)
+    assert (r.requests, r.summarized, len(r.missing)) == (0, 0, 3)
+    d = dg.load_digest(scratch, DAY)
+    assert len(d.items) == 3 and all(it.summary is None for it in d.items)
+    # A later build adds the summaries.
+    assert dg.build(scratch, DAY, log=lambda *_: None, sleep=lambda s: None).summarized == 3

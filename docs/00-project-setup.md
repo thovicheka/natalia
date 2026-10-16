@@ -277,6 +277,8 @@ curl -s -H "x-goog-api-key: $GEMINI_API_KEY" \
 
 Expected: a list of model names, including `"models/gemini-2.5-flash"`. A bad key gives an `API_KEY_INVALID` error instead (the `grep` then prints nothing; drop it to see the message).
 
+> **Listing models doesn't prove the project may generate.** In this build the list worked, but the first generation requests (task 1.7) answered `403 PERMISSION_DENIED … Your project has been denied access`. Check with one tiny request once Stage 6 is set up: `uv run python -m natalia.llm ping`. See [Stage 6, step 4](06-digest.md#4-check-access-with-one-tiny-request) for the fix.
+
 <details><summary>Example from this build (reported by the human, 2026-10-15)</summary>
 
 - Creating a key in AI Studio first failed with **"Unable to create API key"**. ❌

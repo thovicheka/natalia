@@ -28,7 +28,10 @@ from dotenv import load_dotenv
 
 ROOT = Path(__file__).resolve().parent.parent
 USAGE_LOG = ROOT / "logs" / "llm-usage.jsonl"
-DEFAULT_MODEL = "gemini-2.5-flash"
+# gemini-2.5-flash answered "no longer available to new users" (404) on 2026-10-16; this is the
+# newest numbered Flash model the key lists. Pinned (not the moving "gemini-flash-latest" alias),
+# so a model change is a code change that shows up in review.
+DEFAULT_MODEL = "gemini-3.8-flash"
 RETRIES = 3
 RETRY_WAIT_S = 20.0  # when the error doesn't say how long to wait
 MAX_RETRY_WAIT_S = 65.0
@@ -97,8 +100,7 @@ class GeminiClient:
             system_instruction=system,
             temperature=temperature,
             max_output_tokens=max_output_tokens,
-            # Summaries don't need "thinking"; it would cost output tokens and time.
-            thinking_config=types.ThinkingConfig(thinking_budget=0),
+            thinking_config=thinking_config(model, types),
         )
         if json_schema is not None:
             config.response_mime_type = "application/json"
@@ -115,6 +117,14 @@ class GeminiClient:
             output_tokens=(meta.candidates_token_count or 0) if meta else 0,
             thinking_tokens=(meta.thoughts_token_count or 0) if meta else 0,
         )
+
+
+def thinking_config(model: str, types):
+    """As little "thinking" as the model allows: summaries don't need it, and it costs output
+    tokens and time. Gemini 2.x takes a token budget (0 = off); Gemini 3+ takes a level."""
+    if model.startswith("gemini-2"):
+        return types.ThinkingConfig(thinking_budget=0)
+    return types.ThinkingConfig(thinking_level="low")
 
 
 class ProviderError(Exception):
@@ -209,3 +219,28 @@ def generate(
         _log_usage(purpose, r)
         return r
     raise LLMError("unreachable")  # pragma: no cover
+
+
+def main(argv: list[str] | None = None) -> int:
+    """`python -m natalia.llm ping [--model M]`: one tiny request (~10 tokens) to check the key,
+    the project's access and the model. Prints the reply and token counts, never the key."""
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Check the LLM: one tiny request.")
+    parser.add_argument("command", choices=["ping"])
+    parser.add_argument("--model", default=DEFAULT_MODEL)
+    args = parser.parse_args(argv)
+    set_max_calls(1)
+    try:
+        r = generate(
+            "Reply with the single word OK.", model=args.model, max_output_tokens=20, purpose="ping"
+        )
+    except LLMError as e:
+        print(f"{args.model}: FAILED: {e}")
+        return 1
+    print(f"{args.model}: {r.text.strip()!r} ({r.input_tokens} in / {r.output_tokens} out tokens)")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
