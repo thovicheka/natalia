@@ -1,0 +1,35 @@
+# Natalia's Telegram bot (task 1.8): long polling, owner-only until task 2.1.
+#
+# Install (🧑, sudo), once the runtime worktree exists (see docs/07-bot.md):
+#   sudo cp ~/projects/natalia/deploy/natalia-bot.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now natalia-bot
+#   systemctl status natalia-bot ; journalctl -u natalia-bot -n 50
+#
+# It runs from ~/projects/natalia-runtime (a git worktree on `main`), not from the working repo,
+# so switching branches while developing never changes what the bot runs.
+[Unit]
+Description=Natalia Telegram bot (long polling)
+Wants=network-online.target
+After=network-online.target postgresql.service
+
+[Service]
+Type=simple
+User=thovicheka
+WorkingDirectory=/home/thovicheka/projects/natalia-runtime
+# TELEGRAM_BOT_TOKEN, TELEGRAM_OWNER_CHAT_ID and DATABASE_URL come from the runtime's .env,
+# read by the program itself (never put secrets in this file: unit files are world-readable).
+ExecStart=/home/thovicheka/projects/natalia-runtime/.venv/bin/python -m natalia.bot run
+Environment=PYTHONUNBUFFERED=1
+Restart=on-failure
+RestartSec=10
+# Memory budget (docs/ROADMAP.md): bot ≤ 200 MB. Measured ~80 MB with a digest loaded (task 1.8).
+MemoryMax=200M
+MemoryHigh=160M
+# Hardening: no privilege gain, private /tmp, the system read-only.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+
+[Install]
+WantedBy=multi-user.target

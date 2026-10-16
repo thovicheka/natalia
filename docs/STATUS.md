@@ -4,7 +4,7 @@ Live progress for agent work. The agent updates this after every step and pushes
 
 ## Summary
 
-**Run of 2026-10-16 (second), unattended queue: 0.4 → 1.4 → 1.5 → 1.7 → 1.8, each on its own branch stacked on the previous one. In progress.** 0.4 done (`task/0.4-deny-check`): all deny rules block in a live session; 9 gaps closed. 1.4 done (`task/1.4-filter`): topic rules + top 5 stories per topic, 101 tests. 1.5 done (`task/1.5-embeddings`): e5-small int8 on ONNX, 438 MB peak, all 2,614 articles embedded; 🧑 pick. Final summary goes here when the queue is done.
+**Run of 2026-10-16 (second), unattended queue: 0.4 → 1.4 → 1.5 → 1.7 → 1.8, each on its own branch stacked on the previous one. In progress.** 0.4 done (`task/0.4-deny-check`): all deny rules block in a live session; 9 gaps closed. 1.4 done (`task/1.4-filter`): topic rules + top 5 stories per topic, 101 tests. 1.5 done (`task/1.5-embeddings`): e5-small int8 on ONNX, 438 MB peak, all 2,614 articles embedded; 🧑 pick. 1.7 code done (`task/1.7-digest`) but **blocked**: Gemini answers 403 "project denied access"; 3 of 60 approved calls used, 0 tokens. 1.8 done (`task/1.8-bot`): bot code, service file, 132 tests; 🧑 BotFather steps. Final summary goes here when the queue is done.
 
 **Run of 2026-10-16: 0.3 done (branch `task/0.3-docs`, from `origin/main` at a36391e, where 1.3 is merged). Stopping here.** Natalia's docs now follow cloud-ai-lab's pattern: `docs/STYLE.md` (adapted: goal → prerequisites → steps → verify, every step with command, real output, ✅/❌ and error/cause/fix, "Example from this build" blocks, adaptation notes, masking, plus which stage doc each task goes into); `docs/decisions.md` (10 decisions with alternatives); stage docs `00-project-setup.md`, `01-sources.md`, `02-database.md`, `03-collect.md`, written from this file's records; README with what Natalia is, an architecture diagram and a docs table; CLAUDE.md rule 5 under "How to work a task": after each task, update the matching stage doc in STYLE.md format. 0.3 added to ROADMAP (unticked). Docs only: no code changed, no sudo, no LLM calls, no money spent. Fresh read-only checks for the verify sections: 67 tests pass, 66/66 feeds work, 1,863 articles, 0 headlines stored twice.
 
@@ -1606,3 +1606,115 @@ All checks passed!
 - `.env.example` has `EMBEDDING_MODEL=intfloat/multilingual-e5-small`, but no code reads it (the model is a constant in `natalia/embeddings.py`, and the stored `model` column records it). Remove the line, or make the code read it, when convenient.
 - `huggingface-hub` warns about unauthenticated requests on first download; harmless (files are cached and later loads don't touch the network).
 - The throwaway venvs and the e5-base download (~1.6 GB) are in the agent's scratch folder and `~/.cache/huggingface`; the e5-base files can be deleted: `huggingface-cli delete-cache` or remove `~/.cache/huggingface/hub/models--intfloat--multilingual-e5-base`.
+
+## 1.7 — Summarize and explain (first digest)
+- **Branch:** `task/1.7-digest` (stacked on `task/1.5-embeddings`)
+- **State:** ❌ blocked on the human: every generation request answers `403 PERMISSION_DENIED: Your project has been denied access. Please contact support.` Code, tests and today's picks are done.
+- **Done:** `natalia/llm.py` (the only `google-genai` import: retries on 429/5xx with the wait the error asks for, a per-process call cap counting retries, a JSON usage log per request in `logs/llm-usage.jsonl`, `ping` command); `natalia/digest.py` (one request per topic with the stories lacking a summary, JSON output, summaries stored and reused, digests/digest_items with request and token counts, Markdown rendering, `--dry-run`, `--no-llm`, `--model`). 119 tests pass (fakes only). Today's 45 picks stored without summaries; preview saved as `docs/digests/2026-10-16.md`. Stage doc `docs/06-digest.md`; decisions, README and `00-project-setup.md` updated.
+- **Gemini calls used: 3 of the 60 approved, 0 tokens** (1 × 404 model retired, 2 × 403 project denied; listed in `logs/llm-usage.jsonl`). 57 left.
+- **Model:** `gemini-3.8-flash`, not 2.5 Flash as asked: `gemini-2.5-flash` answered "no longer available to new users", and the API itself pointed to 3.8 Flash. Flagged for the human (see "Human must").
+- **Next:** 1.8 (doesn't need Gemini).
+- **Human must:**
+  1. **Restore API access** *(in your browser)*: AI Studio → *Get API key*: check the project's status; create a key in a **new** Google Cloud project (no billing), put it in `.env` (`nano .env`, in your own terminal), then check with one tiny request: `uv run python -m natalia.llm ping` → expect `gemini-3.8-flash: 'OK' (…)`. If a new project is denied too, the Google account is restricted: contact Google (AI Studio *Send feedback* / Cloud support) or use another account. Don't attach billing.
+  2. **Approve the model** `gemini-3.8-flash` (or name another from the list in `docs/06-digest.md`; `--model` takes it), and check its free-tier limits in AI Studio (*Usage & limits*).
+  3. **Run the first digest** (free tier, ~1 min): `uv run python -m natalia.digest build --date 2026-10-16` → expect 9 requests, ~24,000 input + ~4,000 output tokens. Then `uv run python -m natalia.digest show --date 2026-10-16 --save` and commit `docs/digests/2026-10-16.md` (or ask the agent to, along with the real numbers for `docs/06-digest.md`). Then judge the quality (ROADMAP 1.7's "done when").
+
+<details><summary>Steps and output from this build</summary>
+
+**1. Branch** from `task/1.5-embeddings`; `uv add google-genai` → `google-genai==2.31.0`. **Result:** ✅
+
+**2. Free-tier limits:** the public rate-limits page no longer lists free-tier numbers ("can be viewed in Google AI Studio", "applied per project, not per API key"). Design kept conservative: 9 requests a day, 13 s apart. **Result:** ⚠️ 🧑 to check in AI Studio.
+
+**3. Code and tests** with fakes only; SDK fields checked first (`response_json_schema`, `thinking_config`, `ThinkingLevel` LOW, `APIError.code`, usage `prompt/candidates/thoughts_token_count`). One test fix: the digest recorded the requested model name instead of the one that replied.
+```console
+$ uv run pytest -q
+118 passed in 2.29s
+```
+**Result:** ✅
+
+**4. Dry run** for today: 9 requests, ~23,500 input tokens (see `docs/06-digest.md` step 3). **Result:** ✅
+
+**5. Real request 1** (economics, cap 1):
+```console
+economics: failed: LLM request failed (404): 404 NOT_FOUND. {'error': {'code': 404, 'message': 'This model models/gemini-2.5-flash is no longer available to new users. Please update your code to use models/gemini-3.8-flash for the latest features and improvements. …
+```
+**Result:** ❌ **Fix:** listed the key's models (a metadata request, not a generation): `gemini-2.5-flash` is listed but closed to new users; `gemini-3.8-flash`, `gemini-3.5-flash`, `gemini-3.1-flash-lite`, `gemini-flash-latest` … are there. Pinned `gemini-3.8-flash`; thinking set by level for Gemini 3 (`thinking_budget=0` is the Gemini 2 setting).
+
+**6. Real request 2** (economics, gemini-3.8-flash, cap 1):
+```console
+economics: failed: LLM request failed (403): 403 PERMISSION_DENIED. {'error': {'code': 403, 'message': 'Your project has been denied access. Please contact support.', 'status': 'PERMISSION_DENIED'}}
+digest 2026-10-16: 5 stories, 0 summaries reused, 0 new, 5 missing; 1 requests, 0 input + 0 output tokens, 2 s
+```
+**Result:** ❌
+
+**7. Real request 3** (diagnostic, "Reply with the single word OK.", `gemini-3.1-flash-lite`): same 403. **Cause:** the Cloud project is blocked from generating, whatever the model; the key is valid (models list works). Nothing in the code can fix that, so the agent **stopped calling Gemini**. **Result:** ❌ blocked on the human.
+
+**8. What could still be done:** `--no-llm` stores the picks without summaries; `show --save` wrote the preview; the header says "Summaries pending" instead of naming a model; `natalia.llm ping` and `--model` added for the human's next steps.
+```console
+$ uv run python -m natalia.digest build --no-llm
+digest 2026-10-16: 45 stories, 0 summaries reused, 0 new, 45 missing; 0 requests, 0 input + 0 output tokens, 1 s
+$ uv run python -m natalia.digest show --save
+# Natalia daily digest — Friday 16 October 2026
+News from the 24 hours before 07:00 Asia/Phnom_Penh. Summaries pending: none generated yet for these 45 stories. …
+$ uv run pytest -q
+119 passed in 2.32s
+```
+**Result:** ✅ (preview), ⏳ (summaries)
+
+Note: the stored digest row for 2026-10-16 counts 1 request (the 403); the 404 came before the request-count fix. Both are in `logs/llm-usage.jsonl`.
+</details>
+
+**Privacy check:** prompts hold news only (id, headline, source, date, article text or feed excerpt); no links, no reader details, no secrets. The key is read from `.env` inside the process and never printed (`ping` prints only the model, reply and token counts).
+
+## 1.8 — Natalia's Telegram bot
+- **Branch:** `task/1.8-bot` (stacked on `task/1.7-digest`)
+- **State:** agent part done, committed and pushed; 🧑 steps waiting (no bot was created, no message sent)
+- **Done:** `natalia/bot.py` (python-telegram-bot 22.8): `send` (a stored digest → Telegram HTML, source before summary, packed into ≤ 4,096-character messages, ~1 s apart, previews off; `--dry-run`), `run` (long polling, owner-only: `/start`, `/help`, `/digest [date]`; strangers get one refusal and nothing else). Token never printed; `httpx` request logs (which contain the token) kept at WARNING. `deploy/natalia-bot.service` (runtime worktree, `Restart=on-failure`, `MemoryMax=200M`, `MemoryHigh=160M`, `NoNewPrivileges`, `PrivateTmp`, `ProtectSystem=full`, no secrets). 132 tests pass (fake bot and updates). Bot process ~80 MB. Stage doc `docs/07-bot.md`; README updated.
+- **Next:** none in this queue (1.9 not requested).
+- **Human must** (exact commands in `docs/07-bot.md`):
+  1. @BotFather → `/newbot` → put `TELEGRAM_BOT_TOKEN` in `.env` (your own terminal).
+  2. Send the bot `/start`, read your chat ID with `getUpdates` (the command in step 2 keeps the token in your shell), put `TELEGRAM_OWNER_CHAT_ID` in `.env`.
+  3. `uv run python -m natalia.bot send --date 2026-10-16` → expect `sent the 2026-10-16 digest: 6 messages` (more once summaries exist).
+  4. Optional now, needed for 2.1: the runtime worktree (`git worktree add ~/projects/natalia-runtime main`, `uv sync --no-dev`, copy `.env`) and the service: `sudo cp …/natalia-bot.service /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl enable --now natalia-bot`. Do it after merging to `main`, since the service runs `main`.
+
+<details><summary>Steps and output from this build</summary>
+
+**1. Branch** from `task/1.7-digest`; `uv add python-telegram-bot` → `python-telegram-bot==22.8`. **Result:** ✅
+
+**2. Code**, named `natalia/bot.py` (not `telegram.py`, which would shadow the library's name). **Result:** ✅
+
+**3. Dry run** on the stored 2026-10-16 digest:
+```console
+$ uv run python -m natalia.bot send --dry-run --date 2026-10-16
+--- message 1/6 (3850 characters)
+--- message 2/6 (3834 characters)
+--- message 3/6 (3623 characters)
+--- message 4/6 (4001 characters)
+--- message 5/6 (3770 characters)
+--- message 6/6 (1940 characters)
+```
+**Result:** ✅ (summaries pending, see 1.7; with them, about 10–11 messages)
+
+**4. Tests** with a fake bot, stand-in updates and made-up digests; one lint fix (`%` formatting in a test).
+```console
+$ uv run pytest -q
+132 passed in 2.74s
+```
+**Result:** ✅
+
+**5. Service file and memory** (no network, fake token):
+```console
+$ systemd-analyze verify deploy/natalia-bot.service
+natalia-bot.service: Command /home/thovicheka/projects/natalia-runtime/.venv/bin/python is not executable: No such file or directory
+$ uv run python botmem.py
+python: (46.1, 46.1)
+imports: (52.6, 52.6)
+app built: (73.4, 73.4)
+digest loaded and rendered (6 messages): (79.3, 79.3)
+```
+**Result:** ✅ unit valid apart from the runtime worktree that doesn't exist yet (🧑 step 4); ~80 MB.
+</details>
+
+**Noticed, not done (out of scope):**
+- The 07:00 push itself is task 1.9 (Prefect flow `natalia-daily`: collect → tag → embed → digest → `bot send`). Everything it needs now exists as functions.
+- A morning digest of ~10 messages is long for a chat. Options for later (2.2 or the human's call): send only the top stories plus one line per topic and let `/economics` etc. show the rest.
