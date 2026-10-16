@@ -8,6 +8,8 @@ The task list for building Natalia, from the five build phases in [`PLAN.md`](PL
 
 **Order:** Stage 0 → Phase 1 → 2 → 3 → 4 → 5, as in the plan. Each phase ends with a working, usable agent, so the project stays finishable at every step.
 
+**Stage docs:** numbered by build stage, in build order (`00-project-setup.md`, `01-sources.md`, `02-database.md`, `03-collect.md`, `04-topics.md`, `05-embeddings.md`, `06-digest.md`, `07-bot.md`, …; decided by the human on 2026-10-16). Each task names its doc with `→`; a task without one goes into the next free number. Each phase's "Document" task reviews and completes that phase's stage docs; it doesn't write a separate phase doc.
+
 ---
 
 ## Decisions already made
@@ -57,9 +59,13 @@ The embedding model is the biggest risk: PyTorch alone can take several hundred 
   - 🤖 `.claude/settings.json` with `permissions.deny` rules like cloud-ai-lab's (`sudo`, push to main, force-push, `git merge`, `rm -rf`, reading `.env`, `prefect deployment run`).
   - **Done when:** `uv run pytest` passes and a denied command is blocked.
 
-- [ ] **0.3 Documentation** — 🤖
+- [x] **0.3 Documentation** — 🤖
   - 🤖 `docs/STYLE.md` (adapted from cloud-ai-lab's), `docs/decisions.md`, stage docs for what's done (`00-project-setup.md`, `01-sources.md`, `02-database.md`, `03-collect.md`) written from STATUS.md's records, README with the architecture and a docs table, and a CLAUDE.md rule: after each task, update the matching stage doc.
   - **Done when:** the docs are on branch `task/0.3-docs`, ready for review.
+
+- [ ] **0.4 Deny-rule check** — 🤖 → `docs/00-project-setup.md`
+  - 🤖 In a Claude Code session started in `~/projects/natalia`, check that `.claude/settings.json` really blocks each guarded action (sudo, push to main, force-push, merge, `rm -rf`, reading `.env`, Modal, rclone, Prefect runs), using harmless probes (`--help`, `--dry-run`, a decoy `.env` with fake content). Probe for gaps (other spellings of the same action) and close them.
+  - **Done when:** every guarded action is refused in a live session, gaps found are closed and re-tested, and a test checks the rules stay in the file.
 
 ---
 
@@ -67,13 +73,13 @@ The embedding model is the biggest risk: PyTorch alone can take several hundred 
 
 Goal: every morning at 07:00 the human gets a digest on Telegram: headline, link, detail, AI summary and "why it matters", for each topic.
 
-- [x] **1.1 Sources and feeds** — 🤖 + 🧑
+- [x] **1.1 Sources and feeds** — 🤖 + 🧑 → `docs/01-sources.md`
   - 🤖 Find RSS/Atom feed URLs for the sources in PLAN.md, per topic. Fetch each once (free) and record: works / broken / paywalled / no feed. Write `config/sources.yaml` (topic, source, feed URL, language, paywalled).
   - 🤖 Paywalled sources (Bloomberg, FT, WSJ, The Athletic) are kept as headline + excerpt + link only. Each topic has free sources (Reuters, AP, BBC, …) for full detail.
   - 🧑 Review the list.
   - **Done when:** every topic has at least 2 working free feeds, and a script prints the 5 latest headlines per topic.
 
-- [x] **1.2 Database** — 🧑 + 🤖
+- [x] **1.2 Database** — 🧑 + 🤖 → `docs/02-database.md`
   - 🤖 Write the exact install commands and a memory-tuned config (localhost only, small `shared_buffers`, low `max_connections`), plus the role and database setup.
   - 🧑 Install and configure (`sudo`):
     ```bash
@@ -83,42 +89,44 @@ Goal: every morning at 07:00 the human gets a digest on Telegram: headline, link
   - 🤖 Schema and migrations: sources, articles (URL, title, text, topic, language, published), embeddings (`vector(384)`), summaries, digests. `CREATE EXTENSION vector` in a migration.
   - **Done when:** migrations run on the real database, tests pass against it, and PostgreSQL's memory is measured (`systemctl status postgresql`).
 
-- [ ] **1.3 Collect and clean** — 🤖
+- [x] **1.3 Collect and clean** — 🤖 → `docs/03-collect.md`
   - 🤖 `feedparser` to read feeds, `trafilatura` to extract article text (never for paywalled sources: they keep the feed's excerpt; no scraping past a paywall). Deduplicate by canonical URL and normalized title. Polite fetching: timeouts, a user agent, no hammering.
   - **Done when:** running it twice stores the day's articles once each, with no duplicates, and failures on one feed don't stop the others.
 
-- [ ] **1.4 Filter by topic** — 🤖
+- [ ] **1.4 Filter by topic and pick top stories** — 🤖 → `docs/04-topics.md`
   - 🤖 Tag each article with topics: from its feed first, then simple rules (e.g. "Cambodia" for anything mentioning Cambodia, Phnom Penh, Khmer…). No LLM calls.
-  - **Done when:** tests on sample articles pass, and a real run's topic counts look sensible to the human.
+  - 🤖 Rank and keep the top 5 stories per topic per day: prefer stories covered by several sources, recent ones, and ones with full text. No LLM calls.
+  - **Done when:** tests on sample articles pass, and a real run's topic counts and top stories look sensible to the human.
 
-- [ ] **1.5 Embeddings: evaluate the local model** — 🤖 (🧑 picks)
+- [ ] **1.5 Embeddings: evaluate the local model** — 🤖 (🧑 picks) → `docs/05-embeddings.md`
   - 🤖 Measure `multilingual-e5-small` on this server's CPU: peak RAM, load time, seconds per 100 articles. Compare PyTorch (`sentence-transformers`) with an ONNX runtime if PyTorch is too heavy.
   - 🤖 Check quality on a small labeled set: English queries → English articles, Khmer queries → English articles, Khmer articles. Record the numbers in a short report.
   - 🧑 Pick: keep the local model, or (only if needed) an embedding API, which means 🧑 an account and a key (and a spend limit if it's paid).
   - **Done when:** the choice is recorded with measured numbers, and the daily flow's peak stays inside the memory budget.
 
-- [x] **1.6 Gemini API key** — 🧑
+- [x] **1.6 Gemini API key** — 🧑 → `docs/00-project-setup.md`
   - 🧑 Sign in at aistudio.google.com with a Google account, create an API key, and add `GEMINI_API_KEY` to `.env`. Free tier: no paid account, no billing, no spend limit needed. Don't attach billing to the key's project.
   - **Done when:** the key is in `.env` (the agent doesn't test it until a task says so).
 
-- [ ] **1.7 Summarize and explain** — 🤖 (🧑 runs it)
+- [ ] **1.7 Summarize and explain** — 🤖 (🧑 runs it) → `docs/06-digest.md`
   - 🤖 `natalia/llm.py`: a thin wrapper around the `google-genai` SDK (the only module that imports it), with a fake for tests. It logs tokens per call and handles rate-limit errors with a short wait and retry. Digest builder: for each topic, the top items, each with headline, link, detail, AI summary and "why it matters". The summary sits next to the source, never replaces it.
   - 🤖 Pick the current Gemini Flash model, batch items so a digest takes few requests, and count requests and tokens per digest against the free tier's current limits.
   - 🧑 Approve and run one real digest (the agent writes the command and the expected request count).
   - **Done when:** a real digest for today is stored, its request and token counts are logged and well inside the free tier, and the human is happy with its quality.
 
-- [ ] **1.8 Natalia's Telegram bot** — 🧑
+- [ ] **1.8 Natalia's Telegram bot** — 🧑 + 🤖 → `docs/07-bot.md`
   - 🧑 Create a **new** bot with @BotFather (not the lab's alert bot). Add `TELEGRAM_BOT_TOKEN` and `TELEGRAM_OWNER_CHAT_ID` to `.env`; send the bot `/start` once.
-  - **Done when:** the token and chat ID are in `.env`.
+  - 🤖 Bot code (long polling) that sends the stored digest to the owner's chat, a `systemd` service file with `MemoryMax`, and tests with a fake Telegram API (no bot is created and no message sent by the agent).
+  - **Done when:** the token and chat ID are in `.env`, and the human has received a test digest from the bot.
 
-- [ ] **1.9 Morning push on Prefect** — 🤖 + 🧑
+- [ ] **1.9 Morning push on Prefect** — 🤖 + 🧑 → `docs/08-daily-flow.md`
   - 🤖 A Prefect flow `natalia-daily`: collect → filter → store → embed → summarize → send the digest to the owner's chat. Failures send a short message to the owner.
   - 🤖 A runtime worktree `~/projects/natalia-runtime` (like the lab's `lab-runtime`), so branch switches never change what runs. The deployment uses Natalia's own `.venv` through the process pool's `command` job variable; check that the lab's worker (Prefect 3.8.8) runs it that way.
   - 🧑 Register the deployment and its schedule (07:00 Asia/Phnom_Penh). The schedule calls Gemini every day, so the human turns it on.
   - Watch for: the lab worker runs at most 2 flows at once, and paused lab GPU approvals hold slots. A paused run at 07:00 could delay the digest.
   - **Done when:** the digest arrives at 07:00 two mornings in a row, both runs are Completed in the Prefect UI, and peak memory is recorded.
 
-- [ ] **1.10 Document Phase 1** — 🤖 → `docs/01-daily-digest.md`
+- [ ] **1.10 Document Phase 1** — 🤖 → review and complete Phase 1's stage docs (`01-sources.md` … `08-daily-flow.md`): every step with real output, nothing left only in STATUS.md, README's docs table up to date.
 
 ---
 
@@ -146,7 +154,7 @@ Goal: the Telegram bot answers commands, questions, and follow-ups, grounded in 
   - 🧑 Choose topics or a toggle; if topics, create the group and add the bot.
   - **Done when:** follow-up questions work, and the two spaces never mix histories.
 
-- [ ] **2.5 Document Phase 2** — 🤖 → `docs/02-conversation.md`
+- [ ] **2.5 Document Phase 2** — 🤖 → review and complete Phase 2's stage docs (next free numbers, one per stage, e.g. `09-bot-service.md`, `10-rag.md`, …).
 
 ---
 
@@ -164,7 +172,7 @@ Goal: one switch changes everything to Khmer: news, summaries, the human's input
   - 🧑 Read a week of Khmer digests and answers and judge their quality.
   - **Done when:** the human is happy with the Khmer quality, and the requests per day are recorded and inside the free tier.
 
-- [ ] **3.3 Document Phase 3** — 🤖 → `docs/03-language.md`
+- [ ] **3.3 Document Phase 3** — 🤖 → review and complete Phase 3's stage docs (next free numbers).
 
 ---
 
@@ -191,7 +199,7 @@ Goal: send a voice message, get an answer in text or voice. English first, Khmer
   - 🧑 Judge the quality.
   - **Done when:** a Khmer voice question gets a correct answer.
 
-- [ ] **4.5 Document Phase 4** — 🤖 → `docs/04-voice.md`
+- [ ] **4.5 Document Phase 4** — 🤖 → review and complete Phase 4's stage docs (next free numbers).
 
 ---
 
@@ -216,7 +224,7 @@ Goal: the human's main interface: the news feed, a personal library, and a Claud
   - 🤖 Propose a small API (e.g. FastAPI) plus a React front end; 🧑 approves and installs Node if needed.
   - **Done when:** the React site does everything the quick version did.
 
-- [ ] **5.5 Document Phase 5** — 🤖 → `docs/05-website.md`
+- [ ] **5.5 Document Phase 5** — 🤖 → review and complete Phase 5's stage docs (next free numbers).
 
 ---
 

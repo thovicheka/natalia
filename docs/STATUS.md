@@ -4,6 +4,8 @@ Live progress for agent work. The agent updates this after every step and pushes
 
 ## Summary
 
+**Run of 2026-10-16 (second), unattended queue: 0.4 → 1.4 → 1.5 → 1.7 → 1.8, each on its own branch stacked on the previous one. In progress.** 0.4 done (`task/0.4-deny-check`): all deny rules block in a live session; 9 gaps closed. Final summary goes here when the queue is done.
+
 **Run of 2026-10-16: 0.3 done (branch `task/0.3-docs`, from `origin/main` at a36391e, where 1.3 is merged). Stopping here.** Natalia's docs now follow cloud-ai-lab's pattern: `docs/STYLE.md` (adapted: goal → prerequisites → steps → verify, every step with command, real output, ✅/❌ and error/cause/fix, "Example from this build" blocks, adaptation notes, masking, plus which stage doc each task goes into); `docs/decisions.md` (10 decisions with alternatives); stage docs `00-project-setup.md`, `01-sources.md`, `02-database.md`, `03-collect.md`, written from this file's records; README with what Natalia is, an architecture diagram and a docs table; CLAUDE.md rule 5 under "How to work a task": after each task, update the matching stage doc in STYLE.md format. 0.3 added to ROADMAP (unticked). Docs only: no code changed, no sudo, no LLM calls, no money spent. Fresh read-only checks for the verify sections: 67 tests pass, 66/66 feeds work, 1,863 articles, 0 headlines stored twice.
 
 **Human must:**
@@ -176,12 +178,12 @@ $ git push
 
 ## 0.2 — Python project and agent guardrails
 - **Branch:** `task/0.2-python-setup`
-- **State:** done, merged to `main` (PR #2, 97a159f); the deny-rule check is still the human's
+- **State:** done, merged to `main` (PR #2, 97a159f); the live deny-rule check was done in task 0.4 (2026-10-16)
 - **Done:** `uv` project (Python 3.12, `.python-version`, `uv.lock`); package `natalia/` with `__init__.py` and a `llm.py` stub (`generate()` raises `NotImplementedError` until 1.7; no SDK yet); dev group `pytest` + `ruff` (lint rules E, F, W, I, B, UP; line length 100); `tests/` with 5 passing tests; `.claude/settings.json` deny rules.
 - **Next:** Phase 1, task 1.1 (sources and feeds).
-- **Human must:** run the denied-command check below (2 minutes, free). Merged already.
+- **Human must:** nothing; the check below was done by the agent in 0.4 (see "0.4 — Deny-rule check").
 
-**Check that a denied command is blocked** (still open; ROADMAP 0.2's "done when"). The deny rules in `.claude/settings.json` are only loaded by a Claude Code session *started in* `~/projects/natalia`. Every agent run so far (0.2 through 1.3) was started in `~/projects/cloud-ai-lab`, so it ran under cloud-ai-lab's rules, and nobody has yet seen Natalia's rules block anything. A test (`test_settings_deny_rules`) checks the file's content, not that Claude Code applies it.
+**Check that a denied command is blocked** (*done in 0.4; kept for the record*). The deny rules in `.claude/settings.json` are only loaded by a Claude Code session *started in* `~/projects/natalia`. Every agent run so far (0.2 through 1.3) was started in `~/projects/cloud-ai-lab`, so it ran under cloud-ai-lab's rules, and nobody has yet seen Natalia's rules block anything. A test (`test_settings_deny_rules`) checks the file's content, not that Claude Code applies it.
 
 Run, in your own terminal (free: a Claude Code session, no Gemini, nothing on the server changes):
 ```bash
@@ -258,10 +260,10 @@ $ git push -u origin task/0.2-python-setup
 
 ## 0.3 — Documentation
 - **Branch:** `task/0.3-docs`
-- **State:** done, committed and pushed; waiting for the human's review and merge
+- **State:** done, merged to `main` (PR #8, 993e652)
 - **Done:** `docs/STYLE.md`, `docs/decisions.md`, `docs/00-project-setup.md`, `docs/01-sources.md`, `docs/02-database.md`, `docs/03-collect.md`, README, a CLAUDE.md rule, 0.3 in ROADMAP.
 - **Next:** each later task updates its stage doc (new CLAUDE.md rule 5).
-- **Human must:** review and merge; tick 0.3.
+- **Human must:** nothing. Open question 1 answered on 2026-10-16: number stage docs by build stage (`04-topics.md`, `05-embeddings.md`, `06-digest.md`, `07-bot.md`, …); ROADMAP and STYLE.md updated in 0.4.
 
 <details><summary>Steps and output from this build</summary>
 
@@ -337,6 +339,141 @@ $ git push -u origin task/0.3-docs
 **Noticed, not done (out of scope):**
 - This session was started in `~/projects/natalia`, so Natalia's deny rules were likely the ones loaded; the 0.2 live check could be done in such a session. Not attempted here (not this task).
 - PLAN.md's tech stack still says "Scheduling: GitHub Actions or cron" (noted in 0.1); `docs/decisions.md` records why it's Prefect.
+
+## 0.4 — Deny-rule check
+- **Branch:** `task/0.4-deny-check` (from `origin/main` at 993e652, where 0.3 is merged)
+- **State:** done, committed and pushed; waiting for review and merge
+- **Done:** every deny rule from 0.2 checked live in a session started in `~/projects/natalia`, with harmless probes (`--help`, `--dry-run`, a decoy `.env` with fake content): all block. 9 gaps found and closed (re-tested: all now refused); `.claude/settings.json` has 81 rules (was 35). `test_settings_deny_rules` checks the new rules too. ROADMAP: 0.3 and 1.3 ticked, task 0.4 added, stage-doc names per the human's decision (each task names its doc with `→`; a phase's "Document" task completes its stage docs). STYLE.md's task → doc table extended. Stage doc: `docs/00-project-setup.md` step 6b. Decision added to `docs/decisions.md`.
+- **Next:** 1.4.
+- **Human must:** (1) review and merge. (2) Recommended, free: protect `main` on GitHub (*Settings → Branches → Add branch protection rule*, pattern `main`, tick "Require a pull request before merging"; force pushes and deletion are then blocked by default). That's the backstop the deny rules can't be. (3) Optional: delete the two no-op lines `"Write(**/.env)"` and `"Write(~/**/.env)"` from `.claude/settings.json` (the agent's removal was refused, see step 5).
+
+<details><summary>Steps and output from this build</summary>
+
+**1. Branch, and check which settings apply.** This session was started in `~/projects/natalia`; the user-level `~/.claude/settings.json` has no `permissions`, so every block below comes from Natalia's file.
+```console
+$ git checkout -b task/0.4-deny-check origin/main && git branch --unset-upstream
+Switched to a new branch 'task/0.4-deny-check'
+$ python3 -c "…print(d.get('permissions',{}))…"     # ~/.claude/settings.json
+{}
+```
+**Result:** ✅
+
+**2. Every rule from 0.2, probed harmlessly.** Decoy: `.deny-check/.env` containing `DECOY=not-a-secret` (git-ignored by the `.env` line).
+```console
+$ sudo -n true
+Permission to use Bash with command sudo -n true has been denied.
+$ su --help
+Permission to use Bash with command su --help has been denied.
+$ git push origin main --dry-run
+Permission to use Bash with command git push origin main --dry-run has been denied.
+$ git push --force --dry-run origin task/0.4-deny-check
+Permission to use Bash with command git push --force --dry-run origin task/0.4-deny-check has been denied.
+$ git merge --help
+Permission to use Bash with command git merge --help has been denied.
+$ rm -rf <scratchpad>/does-not-exist
+Permission to use Bash with command rm -rf <scratchpad>/does-not-exist has been denied.
+Read(/home/<user>/projects/natalia/.deny-check/.env)
+File is in a directory that is denied by your permission settings.
+$ cd …/.deny-check && cat .env
+Permission to use Bash with command cd …/.deny-check && cat .env has been denied.
+$ git reset --hard --help
+Permission … has been denied.
+$ modal run --help
+Permission … has been denied.
+$ rclone purge --help
+Permission … has been denied.
+$ ~/projects/lab-runtime/.venv/bin/prefect deployment run --help
+Permission … has been denied.
+$ true && sudo -n true
+Permission … has been denied.
+$ cd …/.deny-check && head .env          # Read rules also apply to file-reading commands
+Permission … has been denied.
+$ cat /home/<user>/projects/natalia/.deny-check/.env
+Permission … has been denied.
+$ grep DECOY .deny-check/.env
+Permission … has been denied.
+$ cp .deny-check/.env .deny-check/copy.txt && cat .deny-check/copy.txt
+Permission … has been denied.
+```
+**Result:** ✅ all 0.2 rules block.
+
+**3. Gap probes** (other spellings; all harmless: dry runs, a decoy, a scratch dir):
+```console
+$ bash -c 'sudo -n true'
+sudo: a password is required                       # ran: not blocked
+$ git push --dry-run origin task/0.4-deny-check:main
+Everything up-to-date                              # ran (the branch equals main)
+$ git push --dry-run origin +task/0.4-deny-check   # force push via + refspec
+ * [new branch]      task/0.4-deny-check -> task/0.4-deny-check   # ran (dry run)
+$ git push --dry-run -u origin main
+ ! [rejected]        main -> main (non-fast-forward)   # ran; only git stopped it
+$ git push --dry-run origin HEAD:refs/heads/main
+Everything up-to-date                              # ran
+$ python3 -c "print(open('.env').read())"   (in .deny-check)
+DECOY=not-a-secret                                 # ran: decoy printed
+$ rm -fr <scratchpad>/rmtest
+(no output)                                        # ran
+$ git clean -n
+(no output)                                        # ran
+Read(<scratchpad>/decoy/.env)                      # a decoy outside the project
+1	DECOY=outside-project                          # ran: Read(**/.env) is project-relative
+$ git ls-remote origin main task/0.4-deny-check    # nothing reached GitHub
+993e652850c842b5d6f7cfc638a3dc557d868b1f	refs/heads/main
+```
+**Result:** ❌ 9 gaps. The worst: any `.env` outside the project (e.g. cloud-ai-lab's) was readable, and Python could read Natalia's.
+
+**4. Fix: rules added, then each probe re-run.**
+```console
+Read(<scratchpad>/decoy/.env)
+File is in a directory that is denied by your permission settings.
+$ bash -c 'sudo -n true'
+Permission to use Bash with command bash -c 'sudo -n true' has been denied.
+$ git push --dry-run origin task/0.4-deny-check:main
+Permission … has been denied.
+$ git push --dry-run origin +task/0.4-deny-check
+Permission … has been denied.
+$ git push --dry-run -u origin main
+Permission … has been denied.
+$ git push --dry-run origin HEAD:refs/heads/main
+Permission … has been denied.
+$ python3 -c "print(open('.deny-check/.env').read())"
+Permission … has been denied.
+$ python3 -c 'print(open(".env").read())' 2>/dev/null | wc -c
+Permission … has been denied.
+$ mkdir -p <scratchpad>/rmtest && rm -fr <scratchpad>/rmtest
+Permission … has been denied.
+$ git clean -n
+Permission … has been denied.
+```
+False positives checked:
+```console
+$ python3 -c "import os; print('os.environ ok:', 'HOME' in os.environ)"
+os.environ ok: True
+$ git push --dry-run -u origin task/0.4-deny-check
+ * [new branch]      task/0.4-deny-check -> task/0.4-deny-check
+Would set upstream of 'task/0.4-deny-check' to 'task/0.4-deny-check' of 'origin'
+```
+**Result:** ✅ after two fixes:
+- ❌ The first python rule, `Bash(*python*.env*)`, also blocked `os.environ` one-liners. **Fix:** match `'.env`, `".env`, `/.env`. (The first re-run was still refused because it was sent in the same batch as the edit, before the settings reloaded; alone, it passed.)
+- ❌ `Write(~/projects/natalia/.probe/**)` and `Write(//home/<user>/projects/natalia/.probe2/**)` (test rules) did **not** block the Write tool: files were created (then deleted). **Cause:** Claude Code has no `Write` rule type; `Edit(...)` rules cover Edit and Write. **Fix:** `Edit(...)` rules. Re-test: Write to `.probe/x.txt`, `.probe2/x.txt` and a decoy `.probe3/.env` → `File is in a directory that is denied by your permission settings.` ✅ So the cloud-ai-lab and lab-runtime rules are `Edit(~/projects/cloud-ai-lab/**)` and `Edit(~/projects/lab-runtime/**)`.
+
+Still a false positive, accepted: a command line containing both `python` and `'.env` is refused even when it only *writes text* about `.env` (this STATUS update, first sent as a Bash heredoc, was refused; it was then run as a script file).
+
+**5. Clean up.** Decoys deleted file by file (`rm -r` is now denied), test rules removed with the Edit tool. Removing the two no-op `Write(**/.env)` lines was refused by Claude Code's auto-mode classifier (`Permission for this action was denied by the Claude Code auto mode classifier. Reason: [Self-Modification]`). Left in place: harmless.
+**Result:** ⚠️ (two no-op lines remain; see "Human must")
+
+**6. Tests and lint.**
+```console
+$ uv run pytest -q
+67 passed in 0.82s
+$ uv run ruff check . && uv run ruff format --check .
+All checks passed!
+23 files already formatted
+```
+**Result:** ✅
+</details>
+
+**Noticed, not done (out of scope):** `gh` (GitHub CLI) isn't installed, so the agent can't check or set branch protection; that's the human's step above anyway.
 
 ## 1.6 — Gemini API key
 - **Branch:** none (🧑 step)

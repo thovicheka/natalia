@@ -17,6 +17,23 @@ REQUIRED_DENY = [
     "Bash(cat .env:*)",
     "Bash(prefect deployment run:*)",
     "Bash(*prefect deployment run*)",
+    # Gaps found by the live check in task 0.4 (each one ran before these rules existed).
+    "Bash(*sh -c *sudo*)",
+    "Bash(git push* main)",
+    "Bash(git push* main *)",
+    "Bash(git push*:main*)",
+    "Bash(git push*refs/heads/main*)",
+    "Bash(git push* --force*)",
+    "Bash(git push* +*)",
+    "Bash(git clean*)",
+    "Bash(rm -fr*)",
+    "Bash(rm -r*)",
+    "Read(~/**/.env)",
+    "Edit(**/.env)",
+    "Bash(*python*'.env*)",
+    'Bash(*python*".env*)',
+    "Edit(~/projects/cloud-ai-lab/**)",
+    "Edit(~/projects/lab-runtime/**)",
 ]
 
 
