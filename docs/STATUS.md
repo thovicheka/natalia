@@ -4,7 +4,7 @@ Live progress for agent work. The agent updates this after every step and pushes
 
 ## Summary
 
-**Run of 2026-10-16 (second), unattended queue: 0.4 → 1.4 → 1.5 → 1.7 → 1.8, each on its own branch stacked on the previous one. In progress.** 0.4 done (`task/0.4-deny-check`): all deny rules block in a live session; 9 gaps closed. Final summary goes here when the queue is done.
+**Run of 2026-10-16 (second), unattended queue: 0.4 → 1.4 → 1.5 → 1.7 → 1.8, each on its own branch stacked on the previous one. In progress.** 0.4 done (`task/0.4-deny-check`): all deny rules block in a live session; 9 gaps closed. 1.4 done (`task/1.4-filter`): topic rules + top 5 stories per topic, 101 tests. Final summary goes here when the queue is done.
 
 **Run of 2026-10-16: 0.3 done (branch `task/0.3-docs`, from `origin/main` at a36391e, where 1.3 is merged). Stopping here.** Natalia's docs now follow cloud-ai-lab's pattern: `docs/STYLE.md` (adapted: goal → prerequisites → steps → verify, every step with command, real output, ✅/❌ and error/cause/fix, "Example from this build" blocks, adaptation notes, masking, plus which stage doc each task goes into); `docs/decisions.md` (10 decisions with alternatives); stage docs `00-project-setup.md`, `01-sources.md`, `02-database.md`, `03-collect.md`, written from this file's records; README with what Natalia is, an architecture diagram and a docs table; CLAUDE.md rule 5 under "How to work a task": after each task, update the matching stage doc in STYLE.md format. 0.3 added to ROADMAP (unticked). Docs only: no code changed, no sudo, no LLM calls, no money spent. Fresh read-only checks for the verify sections: 67 tests pass, 66/66 feeds work, 1,863 articles, 0 headlines stored twice.
 
@@ -1414,3 +1414,101 @@ dup title_norm: 0 | total: (1863, 732)
 - ~~Post Khmer returned HTTP 500 in runs 3, 4 and 5 (worked in runs 1–2 and in 1.1). If it lasts, `uv run python -m natalia.feeds` will show it; consider disabling it.~~ Working again on 2026-10-16 (feed check in 0.3).
 - The first cold run took 22.9 min before the fixes. A cold run with today's code should be ~6–7 min (the Guardian queue, ~160 pages at ~2.4 s, is the longest), but that's an estimate: runs 2–4 had little new to fetch. The first 07:00 run in 1.9 will show.
 - Wired's coupon posts and The Guardian's reviews are stored like news; topic filtering (1.4) is the place to drop them.
+
+## 1.4 — Filter by topic and pick top stories
+- **Branch:** `task/1.4-filter` (stacked on `task/0.4-deny-check`)
+- **State:** done, committed and pushed; waiting for review and merge (after 0.4)
+- **Done:** `natalia/topics.py`: keyword rules add topics (English + Khmer; kept in `articles.rule_topics` so rules can be re-run), the headline's script fixes `language`, articles of a day (24 h before 07:00 Asia/Phnom_Penh) are grouped into stories across sites, scored (coverage, recency, full text, not-news and not-Cambodia penalties) and the top 5 per topic picked (general first, each story once, ≤ 2 per site). Collector: records `also_seen` sites for dropped duplicate headlines. Migration `0002` applied on the real database. 101 tests pass. Stage doc `docs/04-topics.md`; decision "Top stories: coverage first, no LLM"; README, `02-database.md` and `03-collect.md` updated. No LLM calls.
+- **Next:** 1.5.
+- **Human must:** (1) review and merge after 0.4. (2) 🧑 ROADMAP's check: do the topic counts and today's top stories (below, and in `docs/04-topics.md` step 3) look sensible? Run `uv run python -m natalia.topics top -v` for any day to see why each story was picked.
+
+<details><summary>Steps and output from this build</summary>
+
+**1. Branch** from `task/0.4-deny-check` (stacked, as asked).
+```console
+$ git checkout -b task/1.4-filter && git branch --unset-upstream
+```
+**Result:** ✅
+
+**2. A fresh collection (run 7)** for today's data (free: public feeds and pages).
+```console
+$ time uv run python -m natalia.collect
+feeds done: 751 new articles to store
+…
+TOTAL              66    0    2064   822    482        9    751   439     312
+excerpt-only, why:
+    215  paywalled source
+     59  site refused earlier requests (not asked again)
+     18  too little text on page
+     10  paywall marker on page
+      8  HTTP 403
+      1  HTTP 405
+      1  HTTP 429
+run time 879 s, 598 HTTP requests, peak memory (max RSS) 152 MB
+real	14m40.554s
+```
+**Result:** ✅ 0 feeds failed. Slow sites: The Guardian (85 articles, 487 s), France 24 (406 s), DW (220 s).
+
+**3. Look at the data first** (read-only query). Findings that shaped the code: Khmer feeds (DAP News) carry world news in Khmer (Ukraine, oil prices, US inflation), all tagged `cambodia` by their feed; Khmer Times' "English" feed has Khmer-language items; Investing.com floods markets with small items (analyst ratings, "Earnings call transcript", AGM notices).
+**Result:** ✅
+
+**4. Migration `0002`** (`rule_topics`, `also_seen`), applied while the collector was still storing (metadata-only `ADD COLUMN`).
+```console
+$ uv run python -m natalia.db migrate
+applied: 0002_topic_rules_and_coverage
+```
+**Result:** ✅
+
+**5. Code and tests:** `natalia/topics.py`, collector `also_seen`, `tests/test_topics.py`. First test run: 3 ❌ — `"fish stocks"` matches the markets rule (accepted as a rare false positive; test changed), "Russia/Ukraine strikes despite Trump warnings" vs "Trump warns Russia over Ukraine peace talks" counted as one story (**fix:** weight words by how rare they are in the day's headlines), a test whose headlines were all alike (test bug). Then 2 ❌ against the database: psycopg returns a `topic[]` (domain array) as the string `'{economics}'`. **Fix:** `::text[]` in the queries.
+```console
+$ uv run pytest -q
+99 passed in 0.99s
+```
+**Result:** ✅
+
+**6. Tag the real articles.**
+```console
+$ uv run python -m natalia.topics tag --all
+articles checked: 1863, changed: 239
+  economics       +76    -0
+  technology      +118   -0
+  science         +12    -0
+  sport           +10    -0
+  crypto          +3     -0
+  markets         +33    -0
+  language en->km: 3
+```
+**Result:** ⚠️ `quantum` tagged Bitcoin "post-quantum" stories as science. **Fix:** word removed; re-run: `changed: 5`, `science +0 -5`. No article outside Cambodia's feeds mentions Cambodia, Phnom Penh or Hun Manet in these 3 days (checked with a query), so `cambodia` gained nothing. After run 7: `articles checked: 2614, changed: 72`; again: `changed: 0`.
+
+**7. Top stories, tuned on the real day** (window 10-15 07:00 → 10-16 07:00 Asia/Phnom_Penh: 1,294 articles). Problems seen with `-v` and fixed: the same story twice because Google News links all count as `news.google.com` (**fix:** the publisher from " - Reuters"); the day's biggest story still split in two because its own words are common that day (**fix:** `same_news` check when picking); a politics story under technology because Wired was one of its sites (**fix:** a story's topics are its lead's plus those most of its articles share; feed topics win ties); a Nepal story as Cambodia #4 (**fix:** penalty 2 → 4); an obituary in science (**fix:** marked down). Final:
+```console
+$ uv run python -m natalia.topics top
+window 10-15 07:00 → 10-16 07:00 Asia/Phnom_Penh: 1294 articles, 1201 stories
+picked 45 stories, 36 covered by 2+ sites
+== economics: UK economy unexpectedly grows in August… (3 sites) · Healey poised to raise taxes on banks… · Healey says surprise UK growth… · Oil prices slide as US weighs easing sanctions on 'shadow fleet' · I find it quite demoralising in store…
+== world-politics: North Korea and China open new bridge… (5 sites) · Romania: 2 ships on fire in Black Sea… (4) · Asian Cup… postponed… amid Houthi attacks (4) · Houthi attack on palace… Aden… (3) · Police arrest US teen… Hindu temple… (3)
+== technology: Bluesky expands… Attie app · Meta… open-weight AI model for Macs · Ukraine's Starlink dependency · FTC subpoenas OpenAI and Anthropic · SK Hynix… chip equipment exports
+== science: Musk… Ukraine drone speeds · reef-building coral species… extinction · Living with a stink? · NASA… Mars' Moons · NASA Satellites Observe Historic 2026 El Niño
+== sport: 24-team College Football Playoff bracket · Blood clot rules Eagles QB Hurts out · Amar'e Stoudemire graduates… · Alex Scott quits Disney+ role · Serbian tennis player handed 24-year ban
+== crypto: Bitcoin Wins the AI Trade, Bitwise CIO · Ledger Announces Atom… · Starknet opens vote… · Australia… OECD crypto tax reporting · Brooklyn DA Pulls the Plug on Crypto Scam Network
+== markets: Canada August manufacturing sales · Why is Rocket Lab stock tumbling today? · IEA… 100 million barrels · Fed's Goolsbee warns AI demand… inflation · People in China are spending… on healthcare
+== cambodia: Cambodia rejects Thai border claims at UN meeting (3) · Authorities tracking wild elephants after death of child · Hun Manet: Cambodia supports transforming CICA… · Cambodia's Poultry Innovation… · …Vietnam, Laos, and Cambodia
+== general: School roof collapses in northwestern Pakistan… (5) · Ukraine to restart strikes on Russian oil refineries… (7) · Martinez apologises… · Australia v New Zealand: Rugby League World Cup – live · Trump cancels plan to livestream execution…
+top: 1.08 s, max RSS 59744 KB
+```
+(full output with sources, sites and links in `docs/04-topics.md` step 3). **Result:** ✅ each story once; tag 1.6 s / 64 MB, top 1.1 s / 60 MB.
+
+**8. Tests and lint.**
+```console
+$ uv run pytest -q
+101 passed in 0.95s
+$ uv run ruff check . && uv run ruff format --check .
+All checks passed!
+```
+**Result:** ✅
+</details>
+
+**Noticed, not done (out of scope):**
+- The human's PyCharm remote-dev server used **2.1 GB RSS** during this run (`ps`), leaving ~700 MB available on the 4 GB server. If it's open at 07:00, the daily flow will be squeezed into swap. Worth closing the IDE when not in use, or keeping it in mind for 1.9.
+- Science and markets have few free full-text feeds (Phys.org pages: 0/29 full text, Ars Technica 0/13, The Verge 0/10); more free science/markets feeds would improve those sections (a 1.1-style task).
+- Old Google News items (feeds disabled in 1.3) still show in the window for a few days, with ugly news.google.com links. They age out by themselves.

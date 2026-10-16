@@ -61,6 +61,7 @@ Design rules:
 | [docs/01-sources.md](docs/01-sources.md) ✅ | The feed list and how it was checked |
 | [docs/02-database.md](docs/02-database.md) ✅ | PostgreSQL + pgvector install, tuning, schema, memory |
 | [docs/03-collect.md](docs/03-collect.md) ✅ | The collector, its politeness rules, real runs and problems |
+| [docs/04-topics.md](docs/04-topics.md) ✅ | Topic rules and the day's top 5 stories per topic |
 | [docs/PLAN.md](docs/PLAN.md) | What Natalia should do (the source of truth for features) |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | The task list for humans and agents, and the decisions made |
 | [docs/STATUS.md](docs/STATUS.md) | Live progress: every step of every task, with real output |

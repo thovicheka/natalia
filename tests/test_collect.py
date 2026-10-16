@@ -397,6 +397,10 @@ def _rows(conn):
     ).fetchall()
 
 
+def _also_seen(conn, url):
+    return conn.execute("SELECT also_seen FROM articles WHERE url = %s", (url,)).fetchone()[0]
+
+
 def test_collect_twice_stores_each_article_once(scratch):
     pages = _pages()
     f = FakeFetcher(pages)
@@ -433,12 +437,15 @@ def test_collect_twice_stores_each_article_once(scratch):
     assert (t["cambodia"].dup_url, t["cambodia"].dup_title, t["cambodia"].stored) == (1, 1, 1)
     assert t["science"].feeds_failed == 1 and "Test Broken" in s1.feed_errors[0]
     assert s1.excerpt_reasons["robots.txt disallows"] == 1
+    # The near-identical headline from other.test was dropped; its site is remembered (1.4).
+    assert _also_seen(scratch, "https://free.test/rice") == ["other.test"]
 
     # Second run: nothing new is stored, and no article page is fetched again.
     f2 = FakeFetcher(pages)
     s2 = c.collect(scratch, SOURCES, fetcher=f2, now=NOW, workers=2, log=lambda *_: None)
     assert sum(ts.stored for ts in s2.topics.values()) == 0
     assert len(_rows(scratch)) == 5
+    assert _also_seen(scratch, "https://free.test/rice") == ["other.test"]  # not twice
     assert not [u for u in f2.seen if "/feed" not in u and "q=test" not in u and "robots" not in u]
 
 

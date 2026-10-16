@@ -248,3 +248,8 @@ MemoryPeak=71983104
 ```
 **Result:** ✅ 26 MB now, peak 68.6 MB; database 13 MB with 1,863 articles.
 </details>
+
+## Later migrations
+| Migration | Task | What it adds |
+|---|---|---|
+| `0002_topic_rules_and_coverage` | 1.4 | `articles.rule_topics` (topics added by keyword rules, so rules can be re-run) and `articles.also_seen` (other sites with the same headline). See [Stage 4](04-topics.md#1-apply-the-migration). |

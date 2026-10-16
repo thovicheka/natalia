@@ -384,6 +384,7 @@ class Item:
     topics: list[str] = field(default_factory=list)
     body: str | None = None
     text_status: str = ""  # "full" or why it is excerpt-only
+    also_seen: list[str] = field(default_factory=list)  # other sites with the same headline
 
 
 @dataclass
@@ -562,8 +563,8 @@ def store(conn: psycopg.Connection, items: list[Item]) -> int:
         for it in items:
             cur = conn.execute(
                 """INSERT INTO articles (source_id, url, title, title_norm, excerpt, body,
-                                         language, topics, published_at)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s::topic[], %s)
+                                         language, topics, published_at, also_seen)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s::topic[], %s, %s)
                    ON CONFLICT (url) DO NOTHING""",
                 (
                     it.source_id,
@@ -575,6 +576,7 @@ def store(conn: psycopg.Connection, items: list[Item]) -> int:
                     it.source.language,
                     it.topics,
                     it.published_at,
+                    it.also_seen,
                 ),
             )
             stored += cur.rowcount
@@ -589,6 +591,21 @@ def add_topic(conn: psycopg.Connection, title_norm: str, url: str | None, topic:
         (topic, url, title_norm, topic),
     )
     return cur.rowcount
+
+
+def add_sighting(conn: psycopg.Connection, title_norm: str, site: str) -> int:
+    """Another site published the stored article's headline: remember it (coverage, 1.4)."""
+    cur = conn.execute(
+        """UPDATE articles SET also_seen = also_seen || %s::text
+           WHERE title_norm = %s AND NOT (%s = ANY(also_seen))""",
+        (site, title_norm, site),
+    )
+    return cur.rowcount
+
+
+def _merge_site(item: Item, site: str) -> None:
+    if site != site_of(item.publisher_host) and site not in item.also_seen:
+        item.also_seen.append(site)
 
 
 # --- the run ------------------------------------------------------------------------------
@@ -710,13 +727,16 @@ def collect(
                 else:
                     stats.topics_merged += add_topic(conn, it.title_norm, it.url, src.topic)
                 continue
-            match = titles.match(it.title_norm, site_of(it.publisher_host))
+            site = site_of(it.publisher_host)
+            match = titles.match(it.title_norm, site)
             if match:
                 ts.dup_title += 1
                 if match in run_by_title:
                     stats.topics_merged += _merge_topic(run_by_title[match], src.topic)
+                    _merge_site(run_by_title[match], site)
                 else:
                     stats.topics_merged += add_topic(conn, match, None, src.topic)
+                    add_sighting(conn, match, site)
                 if match != it.title_norm and len(stats.dup_examples) < 10:
                     stats.dup_examples.append((it.title_norm, match))
                 continue
