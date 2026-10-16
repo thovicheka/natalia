@@ -27,11 +27,16 @@ Which doc a task goes into:
 
 | Tasks | Stage doc |
 |---|---|
-| 0.1, 0.2, 1.6 (repo, rules, Python, Gemini key) | [`00-project-setup.md`](00-project-setup.md) |
+| 0.1, 0.2, 0.4, 1.6 (repo, rules, deny-rule check, Python, Gemini key) | [`00-project-setup.md`](00-project-setup.md) |
 | 1.1 (feeds) | [`01-sources.md`](01-sources.md) |
 | 1.2 (PostgreSQL + pgvector) | [`02-database.md`](02-database.md) |
 | 1.3 (collector) | [`03-collect.md`](03-collect.md) |
-| Later tasks | the doc the task names in [`ROADMAP.md`](ROADMAP.md); if it names none, a new doc with the next free number. Ask the human if unsure. |
+| 1.4 (topics and top stories) | `04-topics.md` |
+| 1.5 (embeddings) | `05-embeddings.md` |
+| 1.7 (LLM wrapper, summaries, digest) | `06-digest.md` |
+| 1.8 (Telegram bot) | `07-bot.md` |
+| 1.9 (daily flow on Prefect) | `08-daily-flow.md` |
+| Later tasks | the doc the task names with `→` in [`ROADMAP.md`](ROADMAP.md); if it names none, a new doc with the next free number. Docs are numbered by build stage, in build order (the human's decision, 2026-10-16); a phase's "Document" task completes its stage docs instead of writing a separate phase doc. Ask the human if unsure. |
 
 A task that changes an earlier stage (e.g. 1.3 disabling feeds from 1.1) also updates that earlier doc.
 

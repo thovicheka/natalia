@@ -1,6 +1,6 @@
 # Stage 0 — Project setup
 
-**Tasks:** 0.1, 0.2, 1.6 · **Status:** ✅ done (0.2's live deny-rule check is still the human's, see step 6)
+**Tasks:** 0.1, 0.2, 0.4, 1.6 · **Status:** ✅ done
 
 **What you'll have working by the end:** a repo with rules for AI agents, a Python 3.12 project managed by `uv` with tests and lint, agent guardrails, a `.env` for secrets, and a working Gemini free-tier API key.
 
@@ -175,20 +175,86 @@ settings.json: valid JSON
 **Result:** ✅ after the layout fix above.
 </details>
 
-**Check that a denied command is really blocked** *(🧑, in your own terminal; free)*. The deny rules only load in a Claude Code session **started in** `~/projects/natalia`; a session started elsewhere uses that folder's rules. The test above checks the file, not that Claude Code applies it.
+### 6b. Check the deny rules really block, and close the gaps *(task 0.4)*
+The test above checks the file's content, not that Claude Code applies it. Do this once, in a Claude Code session **started in** `~/projects/natalia` (a session started elsewhere loads that folder's rules instead):
 ```bash
 cd ~/projects/natalia && claude
 ```
-Inside the session: `/permissions` must list Natalia's Deny rules (e.g. `Bash(git merge:*)`, `Bash(sudo:*)`, `Read(./.env)`); asking it to run `git merge --help` must be refused.
+Then ask the agent to try each guarded action with a **harmless** command, one that does nothing even if the rule fails:
 
-> **Don't** test the `.env` rule by asking the agent to read `.env`: if the rule didn't apply, your keys would land in the conversation. Seeing `Read(./.env)` in the Deny list is enough.
+| Guarded action | Harmless probe |
+|---|---|
+| `sudo`, `su` | `sudo -n true` (never prompts; fails without a cached password), `su --help` |
+| push to `main` | `git push origin main --dry-run` |
+| force-push | `git push --force --dry-run origin <your-branch>` |
+| `git merge`, `git reset --hard` | `git merge --help`, `git reset --hard --help` |
+| `rm -rf` | `rm -rf <scratch-dir>/does-not-exist` |
+| reading `.env` | a **decoy** `.env` with fake content (`mkdir .deny-check && printf 'DECOY=x\n' > .deny-check/.env`), then the Read tool and `cat` on it |
+| Modal, rclone, Prefect runs | `modal run --help`, `rclone purge --help`, `<lab-venv>/bin/prefect deployment run --help` |
 
-<details><summary>Example from this build</summary>
+*What it does:* each probe must come back as `Permission to use Bash with command … has been denied` (or, for the Read tool, `File is in a directory that is denied by your permission settings`). Then try **other spellings of the same action** (table below): Claude Code's Bash rules match the command text, so `git push origin main` being blocked says nothing about `git push origin task/x:main`.
 
-Tasks 0.2 through 1.3 were all run from sessions started in `~/projects/cloud-ai-lab`, so they ran under cloud-ai-lab's rules, and the live check is still open (recorded in STATUS.md under 0.2).
+> **Don't** test the `.env` rule on the real `.env`: if the rule didn't apply, your keys would land in the conversation. Use the decoy, then delete it.
 
-**Result:** ⏳ waiting on the human.
+> **If** a `Write(...)` deny rule doesn't block the Write tool, **it's because** Claude Code has no `Write` rule type: `Edit(...)` rules cover every tool that writes files (Edit and Write). Use `Edit(path)` to protect a path from writes.
+
+> **If** a rule you just added doesn't block yet, wait a second: the session reloads `.claude/settings.json` on change, but a command sent in the same batch as the edit still sees the old rules.
+
+> **If you see** an edit to `.claude/settings.json` refused with `[Self-Modification]`, **it means** Claude Code's auto mode classifier stopped the agent from changing its own permissions (here: removing two deny rules). Adding rules was allowed; removing them needs the human.
+
+<details><summary>Example from this build (2026-10-16, session started in <code>~/projects/natalia</code>)</summary>
+
+The rules from 0.2 all block:
+```console
+$ sudo -n true
+Permission to use Bash with command sudo -n true has been denied.
+$ git push origin main --dry-run
+Permission to use Bash with command git push origin main --dry-run has been denied.
+$ git push --force --dry-run origin task/0.4-deny-check
+Permission to use Bash with command git push --force --dry-run origin task/0.4-deny-check has been denied.
+$ git merge --help
+Permission to use Bash with command git merge --help has been denied.
+Read(.deny-check/.env)
+File is in a directory that is denied by your permission settings.
+$ cd .deny-check && cat .env
+Permission to use Bash with command cd …/.deny-check && cat .env has been denied.
+```
+Also denied: `su --help`, `rm -rf …/does-not-exist`, `git reset --hard --help`, `modal run --help`, `rclone purge --help`, `…/lab-runtime/.venv/bin/prefect deployment run --help`, `true && sudo -n true` (Claude Code checks each part of `&&`), and `head .env`, `grep DECOY .deny-check/.env`, `cat /full/path/.env` (Claude Code applies `Read` rules to file-reading shell commands too).
+
+**Result:** ✅ for every rule in the file.
+
+Then the gaps. Each of these **ran** under 0.2's rules (all dry runs or decoys, so nothing happened):
+
+| Probe | Under 0.2's rules | Rule added | After |
+|---|---|---|---|
+| `bash -c 'sudo -n true'` | ran (`sudo: a password is required`) | `Bash(*sh -c *sudo*)` (+ `env`, `xargs`, `timeout`, `nohup`, `sudo -S`, `pkexec`, `doas`) | denied |
+| `git push --dry-run origin task/0.4-deny-check:main` | ran (`Everything up-to-date`) | `Bash(git push*:main*)` | denied |
+| `git push --dry-run -u origin main` | ran (git: `rejected … non-fast-forward`) | `Bash(git push* main)`, `Bash(git push* main *)` | denied |
+| `git push --dry-run origin HEAD:refs/heads/main` | ran | `Bash(git push*refs/heads/main*)` | denied |
+| `git push --dry-run origin +task/0.4-deny-check` (force via `+`) | ran (`* [new branch]`, dry run) | `Bash(git push* +*)`, `Bash(git push* --force*)`, `Bash(git push* -f*)` | denied |
+| `rm -fr <scratch>/rmtest` | ran | `Bash(rm -fr*)`, `rm -r*`, `rm -R*`, `rm * -r*`, … | denied |
+| `git clean -n` | ran | `Bash(git clean*)` (`git clean -fdx` would delete `.env` and `.venv`) | denied |
+| `python3 -c "print(open('.deny-check/.env').read())"` | **printed the decoy** | `Bash(*python*'.env*)`, `Bash(*python*".env*)`, `Bash(*python*/.env*)` | denied |
+| Read tool on a decoy `.env` **outside** the project | **printed the decoy** | `Read(~/**/.env)`, `Read(//**/.env)` | denied |
+
+The last one matters most: `Read(**/.env)` in a project's settings only covers the project, so `~/projects/cloud-ai-lab/.env` was readable. Also added: `Edit(**/.env)` and `Edit(~/**/.env)` (no writes to any `.env`), `Edit(~/projects/cloud-ai-lab/**)` and `Edit(~/projects/lab-runtime/**)` (CLAUDE.md rule 9), `Bash(find *-delete*)`, and `prefect deployment delete` / `work-pool delete` / `work-pool pause`.
+
+```console
+$ git ls-remote origin main task/0.4-deny-check     # nothing reached GitHub
+993e652850c842b5d6f7cfc638a3dc557d868b1f	refs/heads/main
+```
+
+Problems hit:
+- ❌ A first, broad `Bash(*python*.env*)` also blocked `python3 -c "…os.environ…"` (`os.environ` contains `.env`). **Fix:** match `'.env`, `".env` and `/.env` only. ✅ `os.environ ok: True`.
+- ❌ `Write(~/projects/…/**)` and `Write(//…/**)` rules didn't block the Write tool (probe files on a test path were created). **Cause:** no `Write` rule type. **Fix:** `Edit(...)` rules; re-test: Write on both test paths and on a decoy `.env` → `File is in a directory that is denied`. ✅
+- ⚠️ Removing the now-useless `Write(**/.env)` and `Write(~/**/.env)` lines was refused (`[Self-Modification]`); they're harmless no-ops and stay.
+
+False-positive checks: `git push --dry-run -u origin task/0.4-deny-check` still runs; `uv run pytest` passes.
+
+**Result:** ✅ 81 deny rules; every probe above is refused.
 </details>
+
+**Limits.** Deny rules match command text, so they're a seatbelt, not a wall: `cp .env x && cat x` is blocked (the `.env` read is caught), but a script file that opens `.env` is not. The real backstops are elsewhere: `sudo` needs a password the agent doesn't have, and GitHub can refuse pushes to `main` (branch protection, a 🧑 step in the GitHub web UI: *Settings → Branches → Add rule* for `main`, "Require a pull request before merging", no force pushes).
 
 ### 7. 🧑 Gemini API key (free tier) *(in your browser)*
 1. Sign in at [aistudio.google.com](https://aistudio.google.com) with a Google account.
