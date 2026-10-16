@@ -111,6 +111,22 @@ def test_normalize_title():
     assert c.normalize_title("ស្ថានីយ៍ទូរទស្សន៍!") == "ស្ថានីយ៍ទូរទស្សន៍"
 
 
+@pytest.mark.parametrize(
+    "title, junk",
+    [
+        ("3ZV.MU - Reuters", True),
+        ("(ORK.HA) | Stock Price & Latest News - Reuters", True),
+        ("8750.MU - | Stock Price & Latest News - Reuters", True),
+        ("NATO - Reuters", True),
+        ("Germany moves to end VAT exemption for business mail - Reuters", False),
+        ("Fed holds rates", False),
+        ("ស្ថានីយ៍ទូរទស្សន៍", False),
+    ],
+)
+def test_is_junk_title(title, junk):
+    assert c.is_junk_title(title, "Reuters") is junk
+
+
 def test_clean_excerpt():
     title = "Albania's Rama says he will not resign"
     gn = f'<a href="https://news.google.com/x">{title}</a>&nbsp;&nbsp;<font>Reuters</font>'
@@ -122,12 +138,65 @@ def test_clean_excerpt():
 
 
 def test_title_index_exact_and_near_identical():
-    idx = c.TitleIndex(["stocks rise as fed signals a rate cut in december", "rain"])
-    assert idx.match("stocks rise as fed signals a rate cut in december") is not None
-    assert idx.match("stocks rise as the fed signals a rate cut in december") is not None
-    assert idx.match("stocks fall as china reports weak exports in september") is None
-    assert idx.match("rain") == "rain"  # short titles: exact only
-    assert idx.match("rains") is None
+    idx = c.TitleIndex(
+        [("stocks rise as fed signals a rate cut in december", "a.test"), ("rain", "a.test")]
+    )
+    assert idx.match("stocks rise as fed signals a rate cut in december", "a.test") is not None
+    assert idx.match("stocks rise as the fed signals a rate cut in december", "b.test") is not None
+    assert idx.match("stocks fall as china reports weak exports in september", "b.test") is None
+    assert idx.match("rain", "b.test") == "rain"  # short titles: exact only
+    assert idx.match("rains", "b.test") is None
+
+
+def _norm(title: str) -> str:
+    return c.normalize_title(title)
+
+
+def _similar(a: str, b: str) -> bool:
+    """True when the headlines are close enough that only the site rule can keep them apart."""
+    return c.difflib.SequenceMatcher(None, _norm(a), _norm(b)).ratio() >= c.NEAR_DUP_RATIO
+
+
+# The two real wrong merges of run 5 (2026-10-15), and a real right one from run 1.
+WIRED = (
+    "The 9 Best TV Shows to Stream This Month (October 2026)",
+    "The 9 Best Movies to Stream This Month (October 2026)",
+)
+ATHLETIC = (
+    "Connections: Sports Edition today: Hints and answers for Oct. 15, 2026, puzzle No. 752",
+    "Connections: Sports Edition today: Hints and answers for Oct. 14, 2026, puzzle No. 751",
+)
+CROSS = (
+    "UK threatens to ban Eritreans over migrant return policy",
+    "UK threatens to ban Eritreans over returns policy",
+)
+
+
+@pytest.mark.parametrize(
+    ("kept", "new", "site"), [(*WIRED, "wired.com"), (*ATHLETIC, "nytimes.com")]
+)
+def test_near_identical_headlines_from_one_site_are_kept_apart(kept, new, site):
+    assert _similar(kept, new)  # merged before the fix
+    idx = c.TitleIndex([(_norm(kept), site)])
+    assert idx.match(_norm(new), site) is None
+
+
+def test_near_identical_headlines_from_different_sites_merge():
+    kept, new = CROSS
+    assert _norm(kept) != _norm(new) and _similar(kept, new)
+    idx = c.TitleIndex([(_norm(kept), "bbc.co.uk")])
+    assert idx.match(_norm(new), "theguardian.com") == _norm(kept)
+
+
+def test_exact_headlines_always_merge_even_from_one_site():
+    idx = c.TitleIndex([(_norm(WIRED[0]), "wired.com")])
+    assert idx.match(_norm(WIRED[0]), "wired.com") == _norm(WIRED[0])
+
+
+def test_site_of():
+    assert c.site_of("https://WWW.Wired.com/story/x") == "wired.com"
+    assert c.site_of("www.nytimes.com") == "nytimes.com"
+    assert c.site_of("https://restofworld.org/2026/x/") == "restofworld.org"
 
 
 def test_excerpt_only_reasons():
@@ -182,6 +251,20 @@ def test_long_crawl_delay_blocks():
     )
     with pytest.raises(c.Blocked, match="crawl delay"):
         f.get("https://slow.test/a")
+
+
+def test_site_that_refuses_twice_is_not_asked_again():
+    pages = {"https://r.test/robots.txt": ROBOTS_OPEN}
+    pages |= {f"https://r.test/{i}": c.Response(403, "") for i in range(2)}
+    pages["https://r.test/2"] = ok(page())
+    f = FakeFetcher(pages)
+    assert [f.get(f"https://r.test/{i}").status for i in range(2)] == [403, 403]
+    with pytest.raises(c.SiteRefused):
+        f.get("https://r.test/2")
+    assert "https://r.test/2" not in f.seen
+    it = _item("https://r.test/2")
+    c.extract_text(f, it)
+    assert it.body is None and "refused" in it.text_status
 
 
 def _item(link: str, paywalled: bool = False) -> c.Item:
@@ -251,11 +334,15 @@ def _pages() -> dict:
         FREE.url: ok(
             rss(
                 (
-                    "Cambodia rice exports jump to a record high in September",
+                    "Testland rice exports jump to a record high in Zebrember",
                     "https://free.test/rice?utm_source=rss",
                     recent,
                 ),
-                ("Central bank holds rates steady again", "https://free.test/rates", recent),
+                (
+                    "Testland central bank holds zebra rates steady again",
+                    "https://free.test/rates",
+                    recent,
+                ),
                 ("An old story from last week", "https://free.test/old", old),
             )
         ),
@@ -265,23 +352,35 @@ def _pages() -> dict:
         OTHER.url: ok(
             rss(
                 (
-                    "Cambodia rice exports jump to a record high in September",
+                    "Testland rice exports jump to a record high in Zebrember",
                     "https://free.test/rice?ref=x",
                     recent,
                 ),
                 (
-                    "Cambodia's rice exports jump to record high in September",
+                    "Testland's rice exports jump to record high in Zebrember",
                     "https://other.test/rice",
                     recent,
                 ),
-                ("Floods close schools in Pursat province", "https://other.test/floods", recent),
+                (
+                    "Floods close zebra schools in Testland province",
+                    "https://other.test/floods",
+                    recent,
+                ),
             )
         ),
         "https://other.test/robots.txt": ok(b"User-agent: natalia\nDisallow: /\n", "text/plain"),
-        PAY.url: ok(rss(("Markets slide on tariff fears", "https://pay.test/markets", recent))),
+        PAY.url: ok(
+            rss(
+                ("Testland markets slide on zebra tariff fears", "https://pay.test/markets", recent)
+            )
+        ),
         GN.url: ok(
             rss(
-                ("Albania's Rama says he will not resign over protests - Reuters", GN_LINK, recent),
+                (
+                    "Testland premier says she will not resign over zebra protests - Reuters",
+                    GN_LINK,
+                    recent,
+                ),
                 source=("Reuters", "https://www.reuters.com"),
             )
         ),
@@ -341,6 +440,24 @@ def test_collect_twice_stores_each_article_once(scratch):
     assert sum(ts.stored for ts in s2.topics.values()) == 0
     assert len(_rows(scratch)) == 5
     assert not [u for u in f2.seen if "/feed" not in u and "q=test" not in u and "robots" not in u]
+
+
+def test_collect_keeps_a_sites_similar_posts_apart(scratch):
+    recent = NOW - timedelta(hours=2)
+    series = Source("Test Series", "technology", "https://series.test/feed")
+    tv = "The 9 Best Zebra Shows to Stream This Month (Zebrember 2026)"
+    film = "The 9 Best Zebra Films to Stream This Month (Zebrember 2026)"
+    assert _similar(tv, film)
+    pages = {
+        series.url: ok(
+            rss((tv, "https://series.test/tv", recent), (film, "https://series.test/film", recent))
+        ),
+        "https://series.test/robots.txt": ok(b"User-agent: *\nDisallow: /\n", "text/plain"),
+    }
+    stats = c.collect(
+        scratch, [series], fetcher=FakeFetcher(pages), now=NOW, workers=1, log=lambda *_: None
+    )
+    assert stats.topics["technology"].stored == 2 and stats.topics["technology"].dup_title == 0
 
 
 def test_sync_sources_upserts_and_disables_missing(scratch):

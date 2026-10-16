@@ -18,7 +18,8 @@ headline + excerpt + link:
 - the page is HTML, has no "isAccessibleForFree: false" paywall marker, and yields enough text.
 
 Polite: one user agent that names the project, timeouts, a size cap, at most WORKERS sites at
-once, one request at a time per site with a delay between them (longer if robots.txt asks).
+once, one request at a time per site with a delay between them (longer if robots.txt asks), and
+a site that refuses or times out MAX_REFUSALS times is not asked again in the same run.
 """
 
 from __future__ import annotations
@@ -47,9 +48,8 @@ import feedparser
 import psycopg
 
 from natalia import db
-from natalia.feeds import SOURCES_FILE, TOPICS, Source, load_sources
+from natalia.feeds import SOURCES_FILE, TOPICS, USER_AGENT, Source, load_sources
 
-USER_AGENT = "Mozilla/5.0 (compatible; natalia/0.1; personal news reader; +robots.txt respected)"
 ROBOTS_AGENT = "natalia"  # the token robots.txt rules are matched against
 TIMEOUT_S = 15
 MAX_BYTES = 3_000_000
@@ -57,6 +57,8 @@ WORKERS = 4  # sites fetched at once
 HOST_DELAY_S = 1.0  # between two requests to the same site
 MAX_CRAWL_DELAY_S = 30.0  # a site asking for more gets no full-text fetches this run
 MAX_REDIRECTS = 5
+MAX_REFUSALS = 2  # refusals or timeouts from one site before we stop asking it this run
+REFUSAL_STATUSES = (401, 403, 405, 429)
 MAX_AGE_HOURS = 48
 TITLE_WINDOW_DAYS = 3  # headlines compared against articles collected this recently
 NEAR_DUP_RATIO = 0.9
@@ -93,6 +95,11 @@ TRACKING_PARAMS = re.compile(
     r"^(utm_.*|fbclid|gclid|mc_cid|mc_eid|cmpid|cmp|ocid|ito|at_.*|rss|ref|src|oc|"
     r"guccounter|_ga|xtor|sr_share|taid)$",
     re.I,
+)
+# Not news: stock-quote pages that Reuters' Google News search returns ("3ZV.MU - Reuters",
+# "(ORK.HA) | Stock Price & Latest News - Reuters"). Matched after the " - Publisher" suffix.
+JUNK_TITLE = re.compile(
+    r"^\(?[A-Z0-9]{1,6}(\.[A-Z]{1,4})?\)?(\s*-?\s*\|?\s*Stock Price (&|and) Latest News)?\s*-?$"
 )
 PAYWALL_MARKER = re.compile(rb'"isAccessibleForFree"\s*:\s*"?false', re.I)
 
@@ -156,6 +163,14 @@ def normalize_title(title: str, publisher: str = "") -> str:
     return " ".join(_strip_marks(title).casefold().split())
 
 
+def is_junk_title(title: str, publisher: str = "") -> bool:
+    """True for headlines that are not news (stock-quote pages)."""
+    title = html.unescape(title).strip()
+    if publisher and title.endswith(" - " + publisher):
+        title = title[: -len(" - " + publisher)]
+    return bool(JUNK_TITLE.match(title.strip()))
+
+
 def clean_excerpt(summary: str, title: str) -> str | None:
     """Feed summary as plain text, or None when it only repeats the headline (Google News)."""
     if not summary:
@@ -177,28 +192,39 @@ def domain_matches(host: str, domains: Iterable[str]) -> bool:
     return any(host == d or host.endswith("." + d) for d in domains)
 
 
-class TitleIndex:
-    """Normalized headlines seen so far, for exact and near-identical matching."""
+def site_of(url_or_host: str) -> str:
+    """The site an article comes from: its host without "www."."""
+    host = urlsplit(url_or_host).hostname if "://" in url_or_host else url_or_host
+    return (host or "").lower().removeprefix("www.")
 
-    def __init__(self, titles: Iterable[str] = ()):
+
+class TitleIndex:
+    """Normalized headlines seen so far, for exact and near-identical matching.
+
+    Exact matches always merge. Near-identical ones merge only across different sites: from one
+    site they are usually a series ("The 9 best movies…" / "The 9 best TV shows…", daily puzzle
+    hints), not one story told twice (task 1.3, the human's decision).
+    """
+
+    def __init__(self, titles: Iterable[tuple[str, str]] = ()):
         self._exact: set[str] = set()
         self._by_token: dict[str, list[int]] = defaultdict(list)
-        self._titles: list[str] = []
-        for t in titles:
-            self.add(t)
+        self._titles: list[tuple[str, str]] = []  # (title_norm, site)
+        for norm, site in titles:
+            self.add(norm, site)
 
-    def add(self, norm: str) -> None:
+    def add(self, norm: str, site: str) -> None:
         if not norm or norm in self._exact:
             return
         self._exact.add(norm)
         tokens = set(norm.split())
         if len(tokens) >= NEAR_DUP_MIN_TOKENS:
             idx = len(self._titles)
-            self._titles.append(norm)
+            self._titles.append((norm, site))
             for tok in tokens:
                 self._by_token[tok].append(idx)
 
-    def match(self, norm: str) -> str | None:
+    def match(self, norm: str, site: str) -> str | None:
         """The stored headline this one duplicates, or None."""
         if norm in self._exact:
             return norm
@@ -209,7 +235,9 @@ class TitleIndex:
         for idx, n in shared.most_common(20):
             if n < 0.6 * len(tokens):
                 break
-            other = self._titles[idx]
+            other, other_site = self._titles[idx]
+            if other_site == site:
+                continue
             if difflib.SequenceMatcher(None, norm, other).ratio() >= NEAR_DUP_RATIO:
                 return other
         return None
@@ -239,6 +267,10 @@ class Blocked(Exception):
     """robots.txt (or its crawl delay) says no."""
 
 
+class SiteRefused(Exception):
+    """The site refused (401/403/405/429) or timed out MAX_REFUSALS times this run."""
+
+
 class Fetcher:
     """GETs with one user agent, timeouts, robots.txt, and one request at a time per site."""
 
@@ -250,6 +282,7 @@ class Fetcher:
         self._locks: dict[str, threading.Lock] = defaultdict(threading.Lock)
         self._guard = threading.Lock()
         self._last: dict[str, float] = {}
+        self._refusals: Counter = Counter()
 
     def _host_lock(self, host: str) -> threading.Lock:
         with self._guard:
@@ -300,19 +333,17 @@ class Fetcher:
             self._robots[key] = rp
             return rp
 
-    def allowed(self, url: str) -> bool:
-        parts = urlsplit(url)
-        rp = self.robots(parts.scheme, parts.hostname or "")
-        return rp is None or rp.can_fetch(ROBOTS_AGENT, url)
-
     def get(self, url: str, *, obey_robots: bool = True) -> Response:
         """GET, following redirects by hand so each hop's robots.txt is checked. Raises
-        Blocked when robots.txt disallows a hop; network errors propagate."""
+        Blocked when robots.txt disallows a hop, SiteRefused when the site has already refused
+        us MAX_REFUSALS times this run; network errors propagate."""
         for _ in range(MAX_REDIRECTS + 1):
             parts = urlsplit(url)
             host = parts.hostname or ""
             delay = self.delay
             if obey_robots:
+                if self._refusals[host] >= MAX_REFUSALS:
+                    raise SiteRefused(host)
                 rp = self.robots(parts.scheme, host)
                 if rp is not None and not rp.can_fetch(ROBOTS_AGENT, url):
                     raise Blocked(f"robots.txt disallows {host}{parts.path[:60]}")
@@ -320,7 +351,13 @@ class Fetcher:
                 if crawl_delay > MAX_CRAWL_DELAY_S:
                     raise Blocked(f"{host} asks for a {crawl_delay:.0f}s crawl delay")
                 delay = max(delay, crawl_delay)
-            resp = self._raw_get(url, host, delay)
+            try:
+                resp = self._raw_get(url, host, delay)
+            except OSError:  # timeouts, resets, DNS: count like a refusal
+                self._refusals[host] += 1
+                raise
+            if resp.status in REFUSAL_STATUSES:
+                self._refusals[host] += 1
             if resp.status in (301, 302, 303, 307, 308) and resp.location:
                 url = urljoin(url, resp.location)
                 continue
@@ -368,6 +405,7 @@ class RunStats:
     excerpt_reasons: Counter = field(default_factory=Counter)
     feed_errors: list[str] = field(default_factory=list)
     dup_examples: list[tuple[str, str]] = field(default_factory=list)
+    junk: int = 0  # entries dropped as not news (see JUNK_TITLE)
     gn_items: int = 0
     gn_resolved: int = 0
     topics_merged: int = 0
@@ -389,6 +427,9 @@ def parse_feed(body: bytes, src: Source, source_id: int, stats: RunStats) -> lis
         publisher = ""
         if entry.get("source"):
             publisher = (entry.source.get("title") or "").strip()
+        if is_junk_title(title, publisher):
+            stats.junk += 1
+            continue
         url, fetch_from = canonical_url(link), link
         if urlsplit(link).hostname == GOOGLE_NEWS_HOST:
             stats.gn_items += 1
@@ -439,6 +480,9 @@ def extract_text(fetcher: Fetcher, item: Item) -> None:
         resp = fetcher.get(item.link)
     except Blocked:
         item.text_status = "robots.txt disallows"
+        return
+    except SiteRefused:
+        item.text_status = "site refused earlier requests (not asked again)"
         return
     except Exception as e:
         item.text_status = f"fetch failed ({type(e).__name__})"
@@ -496,12 +540,14 @@ def sync_sources(conn: psycopg.Connection, sources: list[Source]) -> dict[str, i
     return dict(rows)
 
 
-def recent_titles(conn: psycopg.Connection, days: int = TITLE_WINDOW_DAYS) -> list[str]:
+def recent_titles(conn: psycopg.Connection, days: int = TITLE_WINDOW_DAYS) -> list[tuple[str, str]]:
+    """(title_norm, site) of the articles collected in the last `days` days."""
     rows = conn.execute(
-        "SELECT title_norm FROM articles WHERE collected_at >= now() - make_interval(days => %s)",
+        "SELECT title_norm, url FROM articles"
+        " WHERE collected_at >= now() - make_interval(days => %s)",
         (days,),
     ).fetchall()
-    return [r[0] for r in rows]
+    return [(norm, site_of(url)) for norm, url in rows]
 
 
 def existing_urls(conn: psycopg.Connection, urls: list[str]) -> set[str]:
@@ -567,11 +613,16 @@ def _by_host(jobs: list, host_of) -> list[list]:
     return sorted(groups.values(), key=len, reverse=True)  # longest queues start first
 
 
-def _run_grouped(groups: list[list], fn, workers: int) -> list:
-    """Run fn on every job; jobs of one site run one after another, WORKERS sites at once."""
+def _run_grouped(groups: list[list], fn, workers: int, done=None) -> list:
+    """Run fn on every job; jobs of one site run one after another, WORKERS sites at once.
+    done(group, seconds) is called as each site's queue finishes (progress)."""
 
     def worker(group):
-        return [fn(job) for job in group]
+        start = time.monotonic()
+        results = [fn(job) for job in group]
+        if done:
+            done(group, time.monotonic() - start)
+        return results
 
     with ThreadPoolExecutor(workers) as pool:
         return [r for results in pool.map(worker, groups) for r in results]
@@ -659,7 +710,7 @@ def collect(
                 else:
                     stats.topics_merged += add_topic(conn, it.title_norm, it.url, src.topic)
                 continue
-            match = titles.match(it.title_norm)
+            match = titles.match(it.title_norm, site_of(it.publisher_host))
             if match:
                 ts.dup_title += 1
                 if match in run_by_title:
@@ -670,16 +721,24 @@ def collect(
                     stats.dup_examples.append((it.title_norm, match))
                 continue
             run_by_url[it.url] = run_by_title[it.title_norm] = it
-            titles.add(it.title_norm)
+            titles.add(it.title_norm, site_of(it.publisher_host))
             new.append(it)
     log(f"feeds done: {len(new)} new articles to store")
 
     # 3. Article text, in parallel (one at a time per site).
     if fetch_text:
+
+        def site_done(group: list[Item], seconds: float) -> None:
+            full = sum(it.body is not None for it in group)
+            if full or any(not excerpt_only_reason(it) for it in group):
+                host = urlsplit(group[0].link).hostname
+                log(f"  {host}: {full}/{len(group)} full text, {seconds:.0f} s")
+
         _run_grouped(
             _by_host(new, lambda it: urlsplit(it.link).hostname),
             lambda it: extract_text(fetcher, it),
             workers,
+            site_done,
         )
     else:
         for it in new:
@@ -734,8 +793,9 @@ def print_report(stats: RunStats, seconds: float, requests: int) -> None:
     print("\nexcerpt-only, why:")
     for reason, n in stats.excerpt_reasons.most_common():
         print(f"  {n:>5}  {reason}")
+    print(f"\nnot news, dropped (stock-quote pages): {stats.junk}")
     print(
-        f"\nGoogle News links: {stats.gn_items}, resolved offline: {stats.gn_resolved}; "
+        f"Google News links: {stats.gn_items}, resolved offline: {stats.gn_resolved}; "
         f"topics added to already-stored articles: {stats.topics_merged}"
     )
     if stats.dup_examples:
@@ -775,6 +835,7 @@ def main(argv: list[str] | None = None) -> int:
             max_age_hours=args.max_age_hours,
             fetcher=fetcher,
             only=args.feed,
+            log=lambda msg: print(msg, flush=True),
         )
     print_report(stats, time.monotonic() - start, fetcher.requests)
     return 0

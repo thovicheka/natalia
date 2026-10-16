@@ -7,6 +7,7 @@
 #   Hard paywalls (Bloomberg, FT, WSJ, The Athletic) plus metered ones (The Economist, Foreign Affairs,
 #   Wired, MIT Technology Review, Nature, Scientific American, New Scientist, MarketWatch, Nikkei Asia).
 # enabled: false -> checked on 2026-10-15 and dead or broken; kept so nobody re-adds it blindly.
+#   Also: the Google News feeds (news.google.com's robots.txt disallows them; Natalia respects it).
 #
 # Check them all: uv run python -m natalia.feeds --all
 sources:
@@ -15,7 +16,7 @@ sources:
   - {name: The Guardian Economics, topic: economics, url: "https://www.theguardian.com/business/economics/rss"}
   - {name: CNBC Economy, topic: economics, url: "https://www.cnbc.com/id/20910258/device/rss/rss.html"}
   - {name: NPR Economy, topic: economics, url: "https://feeds.npr.org/1017/rss.xml"}
-  - {name: Reuters Business (Google News), topic: economics, url: "https://news.google.com/rss/search?q=site:reuters.com/business+when:1d&hl=en-US&gl=US&ceid=US:en", note: "Via Google News search (no public RSS); links are news.google.com redirects to resolve in 1.3"}
+  - {name: Reuters Business (Google News), topic: economics, url: "https://news.google.com/rss/search?q=site:reuters.com/business+when:1d&hl=en-US&gl=US&ceid=US:en", enabled: false, note: "Disabled 2026-10-15 (task 1.3, the human's decision): news.google.com robots.txt disallows /rss/search and /rss/articles/ for all user agents; Natalia respects robots.txt for feeds too"}
   - {name: Bloomberg Economics, topic: economics, url: "https://feeds.bloomberg.com/economics/news.rss", paywalled: true}
   - {name: Financial Times Global Economy, topic: economics, url: "https://www.ft.com/global-economy?format=rss", paywalled: true}
   - {name: WSJ Economy, topic: economics, url: "https://feeds.content.dowjones.io/public/rss/socialeconomyfeed", paywalled: true}
@@ -27,8 +28,8 @@ sources:
   - {name: NPR World, topic: world-politics, url: "https://feeds.npr.org/1004/rss.xml"}
   - {name: DW World, topic: world-politics, url: "https://rss.dw.com/rdf/rss-en-world"}
   - {name: France 24, topic: world-politics, url: "https://www.france24.com/en/rss"}
-  - {name: Reuters World (Google News), topic: world-politics, url: "https://news.google.com/rss/search?q=site:reuters.com/world+when:1d&hl=en-US&gl=US&ceid=US:en", note: "Via Google News search (no public RSS); links are news.google.com redirects to resolve in 1.3"}
-  - {name: AP World (Google News), topic: world-politics, url: "https://news.google.com/rss/search?q=site:apnews.com+world+when:1d&hl=en-US&gl=US&ceid=US:en", note: "Via Google News search (no public RSS); links are news.google.com redirects to resolve in 1.3"}
+  - {name: Reuters World (Google News), topic: world-politics, url: "https://news.google.com/rss/search?q=site:reuters.com/world+when:1d&hl=en-US&gl=US&ceid=US:en", enabled: false, note: "Disabled 2026-10-15 (task 1.3, the human's decision): news.google.com robots.txt disallows /rss/search and /rss/articles/ for all user agents; Natalia respects robots.txt for feeds too"}
+  - {name: AP World (Google News), topic: world-politics, url: "https://news.google.com/rss/search?q=site:apnews.com+world+when:1d&hl=en-US&gl=US&ceid=US:en", enabled: false, note: "Disabled 2026-10-15 (task 1.3, the human's decision): news.google.com robots.txt disallows /rss/search and /rss/articles/ for all user agents; Natalia respects robots.txt for feeds too"}
   - {name: Foreign Affairs, topic: world-politics, url: "https://www.foreignaffairs.com/rss.xml", paywalled: true}
   # technology
   - {name: Ars Technica, topic: technology, url: "https://feeds.arstechnica.com/arstechnica/index"}
@@ -37,6 +38,8 @@ sources:
   - {name: BBC News Technology, topic: technology, url: "https://feeds.bbci.co.uk/news/technology/rss.xml"}
   - {name: Wired, topic: technology, url: "https://www.wired.com/feed/rss", paywalled: true}
   - {name: MIT Technology Review, topic: technology, url: "https://www.technologyreview.com/feed/", paywalled: true}
+  - {name: Engadget, topic: technology, url: "https://www.engadget.com/rss.xml", note: "Added 2026-10-15 (task 1.3): robots.txt allows article pages, full text extracted"}
+  - {name: Rest of World, topic: technology, url: "https://restofworld.org/feed/latest/", note: "Added 2026-10-15 (task 1.3): tech outside the West, incl. Asia; robots.txt allows article pages, full text extracted"}
   # science
   - {name: ScienceDaily, topic: science, url: "https://www.sciencedaily.com/rss/top/science.xml"}
   - {name: Quanta Magazine, topic: science, url: "https://www.quantamagazine.org/feed/"}
@@ -63,7 +66,7 @@ sources:
   # markets
   - {name: CNBC Markets, topic: markets, url: "https://www.cnbc.com/id/10000664/device/rss/rss.html"}
   - {name: Yahoo Finance, topic: markets, url: "https://finance.yahoo.com/news/rssindex", enabled: false, note: "HTTP 404 on /news/rssindex, /rss/topstories and /news/rss (2026-10-15)"}
-  - {name: Reuters Markets (Google News), topic: markets, url: "https://news.google.com/rss/search?q=site:reuters.com/markets+when:1d&hl=en-US&gl=US&ceid=US:en", note: "Via Google News search (no public RSS); links are news.google.com redirects to resolve in 1.3"}
+  - {name: Reuters Markets (Google News), topic: markets, url: "https://news.google.com/rss/search?q=site:reuters.com/markets+when:1d&hl=en-US&gl=US&ceid=US:en", enabled: false, note: "Disabled 2026-10-15 (task 1.3, the human's decision): news.google.com robots.txt disallows /rss/search and /rss/articles/ for all user agents; Natalia respects robots.txt for feeds too"}
   - {name: MarketWatch Top Stories, topic: markets, url: "https://feeds.content.dowjones.io/public/rss/mw_topstories", paywalled: true, note: "Dow Jones (WSJ's owner), metered paywall"}
   - {name: FXStreet News, topic: markets, url: "https://www.fxstreet.com/rss/news"}
   - {name: ForexLive, topic: markets, url: "https://www.forexlive.com/feed/news"}
@@ -83,9 +86,9 @@ sources:
   - {name: The Guardian Cambodia, topic: cambodia, url: "https://www.theguardian.com/world/cambodia/rss", note: "Country tag feed, a few items a month"}
   - {name: The Diplomat Cambodia, topic: cambodia, url: "https://thediplomat.com/tag/cambodia/feed/", enabled: false, note: "Tag feed's latest item is 2026-05-27; not updated (2026-10-15)"}
   - {name: Fresh News English, topic: cambodia, url: "https://en.freshnewsasia.com/index.php/en/?format=feed&type=rss", enabled: false, note: "Feed is malformed XML (mismatched tag, line 41); 0 items parsed (2026-10-15)"}
-  - {name: Reuters Cambodia (Google News), topic: cambodia, url: "https://news.google.com/rss/search?q=Cambodia+site:reuters.com&hl=en-US&gl=US&ceid=US:en", note: "Via Google News search (no public RSS); links are news.google.com redirects to resolve in 1.3"}
-  - {name: Nikkei Asia Cambodia (Google News), topic: cambodia, url: "https://news.google.com/rss/search?q=Cambodia+site:asia.nikkei.com&hl=en-US&gl=US&ceid=US:en", paywalled: true, note: "Via Google News search (no public RSS); links are news.google.com redirects to resolve in 1.3"}
-  - {name: Google News Cambodia, topic: cambodia, url: "https://news.google.com/rss/search?q=Cambodia+when:1d&hl=en-US&gl=US&ceid=US:en", note: "Via Google News search (no public RSS); links are news.google.com redirects to resolve in 1.3"}
+  - {name: Reuters Cambodia (Google News), topic: cambodia, url: "https://news.google.com/rss/search?q=Cambodia+site:reuters.com&hl=en-US&gl=US&ceid=US:en", enabled: false, note: "Disabled 2026-10-15 (task 1.3, the human's decision): news.google.com robots.txt disallows /rss/search and /rss/articles/ for all user agents; Natalia respects robots.txt for feeds too"}
+  - {name: Nikkei Asia Cambodia (Google News), topic: cambodia, url: "https://news.google.com/rss/search?q=Cambodia+site:asia.nikkei.com&hl=en-US&gl=US&ceid=US:en", paywalled: true, enabled: false, note: "Disabled 2026-10-15 (task 1.3, the human's decision): news.google.com robots.txt disallows /rss/search and /rss/articles/ for all user agents; Natalia respects robots.txt for feeds too"}
+  - {name: Google News Cambodia, topic: cambodia, url: "https://news.google.com/rss/search?q=Cambodia+when:1d&hl=en-US&gl=US&ceid=US:en", enabled: false, note: "Disabled 2026-10-15 (task 1.3, the human's decision): news.google.com robots.txt disallows /rss/search and /rss/articles/ for all user agents; Natalia respects robots.txt for feeds too"}
   # cambodia (Khmer)
   - {name: Post Khmer, topic: cambodia, language: km, url: "https://postkhmer.com/feed"}
   - {name: Kohsantepheap Daily, topic: cambodia, language: km, url: "https://kohsantepheapdaily.com.kh/feed", note: "Feed carries only 1 item at a time"}
@@ -102,6 +105,6 @@ sources:
   - {name: NPR News, topic: general, url: "https://feeds.npr.org/1001/rss.xml"}
   - {name: The Guardian International, topic: general, url: "https://www.theguardian.com/international/rss"}
   - {name: Sky News World, topic: general, url: "https://feeds.skynews.com/feeds/rss/world.xml"}
-  - {name: AP Top News (Google News), topic: general, url: "https://news.google.com/rss/search?q=site:apnews.com+when:1d&hl=en-US&gl=US&ceid=US:en", note: "Via Google News search (no public RSS); links are news.google.com redirects to resolve in 1.3"}
-  - {name: Reuters (Google News), topic: general, url: "https://news.google.com/rss/search?q=site:reuters.com+when:1d&hl=en-US&gl=US&ceid=US:en", note: "Via Google News search (no public RSS); links are news.google.com redirects to resolve in 1.3"}
-  - {name: Google News Top Stories, topic: general, url: "https://news.google.com/rss?hl=en-US&gl=US&ceid=US:en", note: "Via Google News search (no public RSS); links are news.google.com redirects to resolve in 1.3"}
+  - {name: AP Top News (Google News), topic: general, url: "https://news.google.com/rss/search?q=site:apnews.com+when:1d&hl=en-US&gl=US&ceid=US:en", enabled: false, note: "Disabled 2026-10-15 (task 1.3, the human's decision): news.google.com robots.txt disallows /rss/search and /rss/articles/ for all user agents; Natalia respects robots.txt for feeds too"}
+  - {name: Reuters (Google News), topic: general, url: "https://news.google.com/rss/search?q=site:reuters.com+when:1d&hl=en-US&gl=US&ceid=US:en", enabled: false, note: "Disabled 2026-10-15 (task 1.3, the human's decision): news.google.com robots.txt disallows /rss/search and /rss/articles/ for all user agents; Natalia respects robots.txt for feeds too"}
+  - {name: Google News Top Stories, topic: general, url: "https://news.google.com/rss?hl=en-US&gl=US&ceid=US:en", enabled: false, note: "Disabled 2026-10-15 (task 1.3, the human's decision): news.google.com robots.txt disallows /rss/search and /rss/articles/ for all user agents; Natalia respects robots.txt for feeds too"}

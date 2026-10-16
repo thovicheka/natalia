@@ -37,7 +37,10 @@ TOPICS = (
 )
 LANGUAGES = ("en", "km")
 
-USER_AGENT = "Mozilla/5.0 (compatible; natalia/0.1; personal RSS reader)"
+# Names what we are, without "Mozilla/5.0". NPR (Akamai) stalls until timeout both a fake
+# "Mozilla/5.0 (compatible; …)" UA and any UA containing "robots"; this one answers in 0.1 s
+# (measured 2026-10-15, task 1.3). Shared with the collector.
+USER_AGENT = "natalia/0.1 (personal news reader)"
 TIMEOUT_S = 20
 MAX_BYTES = 5_000_000
 STALE_DAYS = 14
