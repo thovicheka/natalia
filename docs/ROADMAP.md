@@ -40,7 +40,7 @@ Don't swap these without asking the human.
 |---|---|---|
 | Prefect server + worker (lab) | ~300 MB | already running |
 | PostgreSQL | ≤ 250 MB | small `shared_buffers`, few connections |
-| Telegram bot service | ≤ 550 MB (`MemoryMax`) | ~80 MB idle; each chat question (1.9b) runs a ~330 MB search child for ~1 s, one at a time |
+| Telegram bot service | ≤ 550 MB (`MemoryMax`) | ~80 MB idle; each news question (1.9b) runs a ~330 MB search child for ~1 s, one at a time; small talk (1.9c) runs none. Conversation memory (1.9c): ≤ 6 × ~0.9 KB per chat |
 | Website service | ≤ 250 MB | Phase 5 |
 | Natalia's Prefect worker + daily flow | ≤ 700 MB (`MemoryMax`) | own cgroup since 1.9. First real run (no embed): **290 MiB peak**, **145 MiB idle** (82 MiB worker + 56 MiB reclaimable cache). With 1.9b's embed step, collect and embed run as child processes: expected peak ~570 MB at the embed step (`MemoryHigh=600M`). |
 
@@ -137,6 +137,16 @@ Goal: every morning at 07:00 the human gets a digest on Telegram: headline, link
   - 🧑 Approve the API use and ask it real questions.
   - **Done when:** answers cite real stored articles with links, a question the news doesn't cover gets an honest "not in the news", and the cap works.
 
+- [ ] **1.9c Natural chat** — 🤖 (🧑 tests it) → `docs/09-chat.md`
+  - The human's follow-up to 1.9b (2026-10-17): 1.9b answered everything as a news search, so "yo sup twin" got "the news doesn't cover that".
+  - 🤖 A friendly general assistant that is also a news expert: small talk, jokes and slang get a natural reply with no search and no sources; only news and current events search the stored articles, answered with sources as in 1.9b.
+  - 🤖 Show only the sources the answer used (none when the news doesn't cover it).
+  - 🤖 Short conversation memory: the last ~6 messages per chat, so "tell me more" works; message text kept no longer than needed. *Kept in the bot's RAM for 30 minutes, not in PostgreSQL as 2.4 planned (decisions.md, "Chat").*
+  - 🤖 Reply in the person's language and tone (Khmer, English or mixed). If someone seems genuinely upset: kind and brief, gently suggest talking to someone they trust.
+  - 🤖 Keep owner-only, the daily cap and the cost logging; estimate the cost change from memory.
+  - 🧑 Approve the API use and talk to it.
+  - **Done when:** small talk gets a friendly reply with no sources, news questions get sourced answers, a follow-up works, and the cap still holds.
+
 - [ ] **1.10 Document Phase 1** — 🤖 → review and complete Phase 1's stage docs (`01-sources.md` … `08-daily-flow.md`): every step with real output, nothing left only in STATUS.md, README's docs table up to date.
 
 ---
@@ -161,7 +171,7 @@ Goal: the Telegram bot answers commands, questions, and follow-ups, grounded in 
   - **Done when:** answers cite real stored articles, and the cap works.
 
 - [ ] **2.4 Real conversation and two spaces** — 🤖 + 🧑
-  - 🤖 Memory: a rolling window of the last N messages per chat, stored in PostgreSQL. Two spaces with separate histories: **News** (long items) and **Conversation** (short dialogue), via Telegram group topics or a `/mode` toggle.
+  - 🤖 Memory: a rolling window of the last N messages per chat, stored in PostgreSQL. *1.9c already keeps the last 6 messages per chat in the bot's RAM (30 minutes); what's left is the two spaces, and whether history should survive a restart.* Two spaces with separate histories: **News** (long items) and **Conversation** (short dialogue), via Telegram group topics or a `/mode` toggle.
   - 🧑 Choose topics or a toggle; if topics, create the group and add the bot.
   - **Done when:** follow-up questions work, and the two spaces never mix histories.
 

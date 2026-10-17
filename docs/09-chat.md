@@ -1,8 +1,8 @@
-# Stage 9 — Chat in Telegram (answers from the stored news)
+# Stage 9 — Chat in Telegram (a friendly assistant, and a news expert)
 
-**Tasks:** 1.9b · **Status:** ✅ first real question answered (CLI) and the new memory caps installed; 🧑 merge, then update the runtime so the bot runs the chat code
+**Tasks:** 1.9b, 1.9c · **Status:** 1.9b ✅ live. 1.9c 🧑 code and tests done; the first real messages (paid, ~$0.0001–0.001 each) need the human's approval, then merge and a bot restart.
 
-**What you'll have working by the end:** send the bot any text message, in English or Khmer, and it answers in the same language from the articles Natalia has stored, with the sources it used (headline as a link, site, date). If the stored news doesn't cover the question, it says so instead of guessing. Owner only, at most 20 questions a day.
+**What you'll have working by the end:** talk to the bot like a person, in English, Khmer or a mix. Small talk ("yo sup twin") gets a short, friendly reply in the same tone, with no news and no sources. Ask about the news and it answers from the articles Natalia has stored, with the sources it actually used (headline as a link, site, date). Follow-ups like "tell me more" work, because it remembers the last 6 messages for 30 minutes. If you seem upset, it answers kindly and briefly. Owner only, at most 20 messages a day.
 
 | Placeholder | In this build |
 |---|---|
@@ -16,26 +16,49 @@
 
 ## How it works
 ```
-owner's message ──► bot: owner? text? under 20 today? ──► count it (chat_questions, no text)
+owner's message ──► bot: owner? text? under 20 today? ──► count it (chat_questions: kind, tokens; no text)
                                     │
                                     ▼
-        child process: embed the question (local e5 model) ──► 8 nearest articles, last 30 days
-                                    │         (~1 s, 332 MB, freed when it exits)
-                                    ▼
-        one Haiku request: the articles + the question ──► JSON {covered, answer, source_ids}
-                                    │
-                                    ▼
-        reply: the answer, then "Sources": headline links from the database (ids it made up are dropped)
+   request 1 (small): last 6 messages + the new one ──► JSON {kind, reply, search}
+          │                                   │
+     kind = chat                          kind = news
+          │                                   │
+          ▼                                   ▼
+   reply as written:          child process: embed `search` (local e5) ──► 8 nearest articles, 30 days
+   no search, no sources                      │   (~1 s, 332 MB, freed when it exits)
+                                              ▼
+                              request 2: articles + last 6 messages + the question
+                                         ──► JSON {covered, answer, source_ids}
+                                              │
+                                              ▼
+                              the answer, then "Sources": only if covered, only the ids it used,
+                              headline links from the database (made-up ids dropped)
+          │                                   │
+          └──────────► remember both messages (RAM, 30 min) ◄───┘
 ```
 - **`natalia/chat.py`**:
-  - **Language:** Khmer if the question is mostly Khmer script, otherwise English. The answer is asked for in that language; headlines stay as published.
-  - **Retrieval:** the question is embedded with the same local model as the articles. The 8 nearest articles of the last 30 days are kept (cosine distance ≤ 0.25).
-  - **The answer:** Haiku gets each article's headline, site, date and its first 1,200 characters. It answers only from them and says which it used; the sources come from the database, never from the reply.
-- **Why a child process for the search:** the embedding model takes ~330 MB. Loaded in the bot, it would stay there all day. In a child (`python -m natalia.chat retrieve`), it's freed a second later. The question goes to the child on stdin, never on its command line (other users can read command lines with `ps`). One question is answered at a time, so only one child runs.
+  - **Reply or search (1.9c):** the first request decides. Small talk, greetings, jokes, thanks, questions about Natalia and general knowledge get a reply right there: one request, no search. News and current events, or a follow-up on them, get a **standalone search query** instead, with names filled in from the conversation ("tell me more" after Bitcoin → "Bitcoin price this week"). Without this step, every message was a news search: "yo sup twin" retrieved two Reuters stock pages and a motorbike story (step 2).
+  - **Tone and language:** both prompts say to match the latest message: Khmer, English or the same mix, casual or formal, slang if they use it. The script count (`language()`) is only a hint in the prompt ("mostly Khmer") and picks the language of the fixed replies (cap, failure).
+  - **Upset:** the reply prompt says to be kind and brief, with no jokes and no news, and to gently suggest talking to someone they trust; if they might hurt themselves or are in danger, to urge contacting local emergency services or someone near them. Nothing about it is logged: such a message is `kind=chat` like any other.
+  - **Retrieval:** the search query is embedded with the same local model as the articles. The 8 nearest articles of the last 30 days are kept (cosine distance ≤ 0.25).
+  - **The answer:** Haiku gets each article's headline, site, date and its first 1,200 characters, plus the conversation. It answers only from the articles, says which it used, and adds new detail on a follow-up instead of repeating itself.
+  - **Sources only when used (1.9c):** if the answer says the news doesn't cover the question, no sources are shown, whatever ids come back. 1.9b showed 3 sources under a "not covered" answer (bot log, 2026-10-17 16:28: `covered=False sources=3`).
+- **Memory (1.9c):** `Memory` keeps the last 6 messages of each chat (3 of the owner's, 3 of Natalia's; each cut to 600 characters, plus up to 300 characters of the headlines a news answer cited). In the bot's RAM only: forgotten after 30 minutes without a message, or when the bot restarts. Never written to the database or the logs. Failed messages and messages over the cap aren't remembered.
+- **Why a child process for the search:** the embedding model takes ~330 MB. Loaded in the bot, it would stay there all day. In a child (`python -m natalia.chat retrieve`), it's freed a second later. The query goes to the child on stdin, never on its command line (other users can read command lines with `ps`). One message is answered at a time, so only one child runs.
 - **Haiku decides "covered", not a score cut-off.** e5's scores are bunched together: unrelated questions still score 0.79–0.81 against the best article, related ones 0.82–0.89 (measured, step 2). A hard cut-off would drop good articles, so the 0.25 distance only drops junk and the prompt tells Haiku to say when the articles don't answer.
-- **Daily cap:** 20 questions per chat per day (Asia/Phnom_Penh). A question counts before anything is sent, so failures count too. Over the cap: "That's 20 questions today, the daily limit."
-- **Privacy:** the question's text is not stored; `chat_questions` keeps the chat id, time, language, how many articles were retrieved, covered or not, the source ids, and tokens. The question itself goes to Anthropic to be answered (that's the feature). Strangers still get only "Sorry, this is a private bot."
-- **Cost:** ~4,000 input tokens (8 articles) + a few hundred output tokens ≈ **$0.001 a question**; at the cap, ~$0.02 a day.
+- **Daily cap:** 20 messages per chat per day (Asia/Phnom_Penh), small talk included. A message counts before anything is sent, so failures count too. Over the cap: "That's 20 messages today, the daily limit. Talk to you tomorrow!"
+- **Privacy:** no message text is stored; `chat_questions` keeps the chat id, time, language, kind (`chat` or `news`), how many articles were retrieved, covered or not, the source ids, and tokens. The messages go to Anthropic to be answered (that's the feature). Strangers still get only "Sorry, this is a private bot."
+- **Cost** (Haiku 5.5: $0.10/M input, $0.50/M output; tokens from the prompt sizes in step 8, at the 0.42 tokens per character measured in step 4):
+
+  | Message | Requests | Input tokens | Cost |
+  |---|---|---|---|
+  | Small talk, no memory | 1 | ~730 | ~$0.0001 |
+  | Small talk, 6 messages remembered | 1 | ~1,240 | ~$0.00016 |
+  | News, no memory (1.9b measured: 1 request, 4,244 in, $0.0005) | 2 | ~5,060 | ~$0.0006 |
+  | News, 6 messages remembered | 2 | ~6,080 | ~$0.0007 |
+  | News in Khmer, 6 Khmer messages remembered | 2 | ~7,500 | ~$0.001 |
+
+  **What memory adds:** the 6 remembered messages are ~1,200 characters (~510 tokens) in English, sent once for small talk and twice for news: **+$0.00005 to +$0.0001 per message**. Khmer takes ~2–3× the tokens, so up to ~+$0.0003. The reply-or-search request adds ~$0.0001 to every news question. **At the cap:** 20 news questions with full memory ≈ $0.014 a day (Khmer ~$0.02), against $0.01 in 1.9b. A realistic day (5 news questions, 10 small talk) ≈ $0.005.
 
 ## Steps
 
@@ -43,7 +66,7 @@ owner's message ──► bot: owner? text? under 20 today? ──► count it (
 ```bash
 uv run python -m natalia.db migrate
 ```
-*What it does:* creates `chat_questions` (`migrations/0003_chat_questions.sql`).
+*What it does:* creates `chat_questions` (`migrations/0003_chat_questions.sql`, 1.9b) and adds its `kind` column (`0004_chat_kind.sql`, 1.9c: `chat` or `news`; empty for 1.9b's rows).
 
 <details><summary>Example from this build</summary>
 
@@ -53,14 +76,21 @@ PostgreSQL 16.15 (Ubuntu 16.15-0ubuntu0.24.04.1), pgvector 0.6.0
 applied migrations: 0001_initial_schema, 0002_topic_rules_and_coverage, 0003_chat_questions
 pending migrations: none
 ```
-**Result:** ✅
+1.9c:
+```console
+$ uv run python -m natalia.db migrate
+PostgreSQL 16.15 (Ubuntu 16.15-0ubuntu0.24.04.1), pgvector 0.6.0
+applied migrations: 0001_initial_schema, 0002_topic_rules_and_coverage, 0003_chat_questions, 0004_chat_kind
+pending migrations: none
+```
+**Result:** ✅ both applied to the shared database (0004 only adds a nullable column; the 1.9b bot still running ignores it).
 </details>
 
 ### 2. See what a question would retrieve *(free: local model, no LLM)*
 ```bash
 uv run python -m natalia.chat ask "<question>" --dry-run
 ```
-*What it does:* runs the search child and prints the prompt Haiku would get. Nothing is sent, nothing is counted.
+*What it does:* prints the reply-or-search prompt, then searches with the message itself (as if it were news) and prints the answer prompt. Nothing is sent, nothing is counted or remembered. Since 1.9c, the CLI takes several messages (`ask "<first>" "<follow-up>"`); a real run remembers them in order, like the bot.
 
 <details><summary>Example from this build</summary>
 
@@ -95,7 +125,24 @@ The scores behind the "Haiku decides" choice (`uv run python -m natalia.embeddin
 0.848 [en] The rollout of 24-hour* trading
 0.839 [en] The Grim Reaper Is Coming Earlier Than Ever for Memecoins
 ```
-**Result:** ✅ related questions find the right articles (Bitcoin, Cambodia in Khmer). Unrelated ones score almost as high (0.79–0.81), so no cut-off can tell them apart; Haiku does. Khmer → English is the weak case ("stock market today" in Khmer found trading and memecoins): measured in [Stage 5](05-embeddings.md) (km→en hit@1 0.40).
+Small talk searched as news (1.9c, before the reply-or-search step):
+```console
+$ uv run python -m natalia.chat ask "yo sup twin" --dry-run
+New message: yo sup twin
+Articles:
+
+[1304] T2V1n.F - Reuters
+Source: Reuters Markets (Google News), 2026-10-15 02:12
+
+[1251] SEBc.F - Reuters
+Source: Reuters Markets (Google News), 2026-10-14 20:20
+
+[2528] IN PICTURES: Short, sharp shocks for anarchic teen motorbike gang
+…
+> yo sup twin
+kind=news, retrieved 8: [1304, 1251, 2528, 1248, 1267, 4708, 2261, 1496]
+```
+**Result:** ✅ related questions find the right articles (Bitcoin, Cambodia in Khmer). Small talk finds noise, which is why 1.9c lets the first request reply without searching. Unrelated ones score almost as high (0.79–0.81), so no cut-off can tell them apart; Haiku does. Khmer → English is the weak case ("stock market today" in Khmer found trading and memecoins): measured in [Stage 5](05-embeddings.md) (km→en hit@1 0.40).
 </details>
 
 ### 3. The search child's memory and time *(free)*
@@ -189,15 +236,51 @@ In Telegram, send a question (no `/`). Expected: "typing…", then within ~5–1
 ```bash
 journalctl -u natalia-bot -n 20 --no-pager | grep "chat:"
 ```
-*Expected:* one line per question: `chat: lang=en retrieved=8 covered=True sources=3 tokens=…`. The question's text is never logged.
+*Expected:* one line per message: `chat: kind=news lang=en retrieved=8 covered=True sources=3 requests=2 tokens=…` (1.9b's lines have no `kind` or `requests`). The message's text is never logged.
 
-### 7. Tests
+<details><summary>Example from this build (1.9b, the bot's first questions)</summary>
+
+```console
+$ journalctl -u natalia-bot -n 30 --no-pager | grep "chat:"
+… natalia.bot INFO chat: lang=en retrieved=8 covered=False sources=3 tokens=2018+125
+… natalia.bot INFO chat: lang=en retrieved=8 covered=False sources=0 tokens=3733+128
+```
+**Result:** ✅ answered. ❌ the first reply said the news didn't cover the question but still listed 3 sources. **Cause:** the prompt asked for "the ids you used", and Haiku listed the articles it had looked at. **Fix (1.9c):** no sources when `covered` is false, and the prompt asks only for articles whose facts are in the answer.
+</details>
+
+### 7. 🧑 Talk to it (1.9c) *(paid: ~$0.0001–0.001 a message)*
+```bash
+uv run python -m natalia.chat ask "yo sup twin" "Bitcoin price this week" "tell me more" "ugh today was rough"
+```
+*What it does:* four messages as the owner, in order, with memory. Expected: a short casual reply with no sources (`kind=chat`, 1 request); a news answer with sources (`kind=news`, 2 requests); more Bitcoin detail without repeating, its search query filled in from the conversation; a kind, brief reply with no news. About $0.0015 in all; 4 of today's 20. Then in Telegram, after the merge and `sudo systemctl restart natalia-bot`: a Khmer message, a Khmer–English mix, and a news question the stored articles can't answer (no sources).
+
+<details><summary>Example from this build</summary>
+
+Not run yet: waiting for the human's approval of the first real 1.9c call. **Result:** ⏳
+</details>
+
+### 8. Prompt sizes for the cost estimate *(free, no LLM)*
+The characters of each prompt (system + message), with six remembered messages from a realistic chat (small talk, the Bitcoin answer with its sources, a follow-up):
+
+<details><summary>Example from this build</summary>
+
+```console
+reply system 1717 chars, news system 957 chars, full history 1211 chars
+reply prompt, no history: 1742
+reply prompt, full history: 2953
+answer prompt, no history: 10314; full history: 11514
+```
+**Result:** ✅ the 1.9b question measured 4,244 tokens for ~10,200 characters, 0.42 tokens per character; the cost table above uses that. The history adds ~1,200 characters per request.
+</details>
+
+### 9. Tests
 ```bash
 uv run pytest -q tests/test_chat.py tests/test_bot.py
 ```
-*What it does:* language detection; HTML escaping and numbered sources; the prompt; answers from retrieved articles only with made-up ids dropped; a Khmer question asking for a Khmer answer; no LLM call when nothing is retrieved; the row recorded without the question's text; the cap (failures count, nothing runs over the cap, resets the next local day); retrieval and LLM failures and a non-JSON reply becoming a "sorry"; the date and distance filter on real pgvector rows; the question passed on stdin, never in the child's arguments; in the bot, typing then an HTML reply, long answers split, photos and unknown commands, a stranger never reaching chat. Retrieval and the LLM are fakes; database tests roll back.
+*What it does:* language detection; HTML escaping and numbered sources; the prompts, with the conversation oldest first;
+small talk answered in one request with no search and no sources (stored as `kind=chat`); an empty reply is a "sorry"; a news query falling back to the message; "not covered" listing no sources even when ids come back; the reply prompt's tone, language and distress rules; memory (last N per chat, chats kept apart, forgotten when idle, long messages cut, failures and over-cap messages not remembered, nothing in the database); a follow-up whose prompts carry the previous exchange and its headlines; the bot's log line without the message's text; answers from retrieved articles only with made-up ids dropped; a Khmer question asking for a Khmer answer; no LLM call when nothing is retrieved; the row recorded without the question's text; the cap (failures count, nothing runs over the cap, resets the next local day); retrieval and LLM failures and a non-JSON reply becoming a "sorry"; the date and distance filter on real pgvector rows; the question passed on stdin, never in the child's arguments; in the bot, typing then an HTML reply, long answers split, photos and unknown commands, a stranger never reaching chat. Retrieval and the LLM are fakes; database tests roll back.
 
 ## Verify it worked
-- A question in Telegram gets an answer with linked sources, in its language.
-- `SELECT count(*), sum(input_tokens), sum(output_tokens) FROM chat_questions WHERE asked_at > now() - interval '1 day';` matches what you asked.
+- "hi" gets a friendly reply with no sources; a news question gets an answer with linked sources, in its language; "tell me more" continues it.
+- `SELECT kind, count(*), sum(requests), sum(input_tokens), sum(output_tokens) FROM chat_questions WHERE asked_at > now() - interval '1 day' GROUP BY kind;` matches what you sent.
 - `systemctl show natalia-bot -p MemoryPeak` stays under 550M.
