@@ -6,7 +6,11 @@ Live progress for agent work. The agent updates this after every step and pushes
 
 **Run of 2026-10-17: 1.7 switched from Gemini to Claude Haiku 5.5 (same branch `task/1.7-digest`). Waiting for the human's approval of the first real call.** `natalia/llm.py` has an Anthropic backend (official `anthropic` SDK 1.15.0, `claude-haiku-5-5`, key `ANTHROPIC_API_KEY`), and it is now the default. `LLM_PROVIDER=gemini` still selects the old Gemini code. 130 tests pass (fakes only), and the linter is clean. **0 Anthropic calls made, $0 spent.** The decision is recorded in `docs/decisions.md`, the stage doc `docs/06-digest.md` is updated, and `.env.example` has the new lines.
 
-**Human must:** approve and run the one-request ping (command and cost under 1.7), then approve the full digest separately.
+**Update, same day: the ping worked (run by the human: 18 in / 4 out tokens). The first full digest was built with the human's approval: 9 requests, 42,713 input + 10,766 output tokens, $0.0097. 43 of 44 stories were summarized, and one world-politics story is missing.** Saved to `docs/digests/2026-10-17.md`.
+
+**Update 2: rerun approved for the missing story. It sent 2 requests instead of the 1 expected ($0.0008 instead of ~$0.0002), because the picks changed between runs: equal scores are tie-broken by a memory address in `natalia/topics.py`. The digest is now 44/44. Anthropic total today: 12 requests, $0.0105.** The raw reply of any request that leaves a story missing is now saved to `logs/digest-replies/`. 144 tests pass.
+
+**Human must:** judge the digest's quality (ROADMAP 1.7's "done when"); decide on the tie-break fix (open question below, task 1.4 code); review and merge `task/1.7-digest`.
 
 **Run of 2026-10-16 (second), unattended queue: 0.4 → 1.4 → 1.5 → 1.7 → 1.8, each on its own branch stacked on the previous one. In progress.** 0.4 done (`task/0.4-deny-check`): all deny rules block in a live session; 9 gaps closed. 1.4 done (`task/1.4-filter`): topic rules + top 5 stories per topic, 101 tests. 1.5 done (`task/1.5-embeddings`): e5-small int8 on ONNX, 438 MB peak, all 2,614 articles embedded; 🧑 pick. 1.7 code done (`task/1.7-digest`) but **blocked**: Gemini answers 403 "project denied access"; 3 of 60 approved calls used, 0 tokens. Final summary goes here when the queue is done.
 
@@ -1625,6 +1629,40 @@ All checks passed!
     ```
     Expected: `claude-haiku-5-5: 'OK' (… in / … out / … thinking tokens)`. It reads `ANTHROPIC_API_KEY` from `.env`, and `LLM_PROVIDER` can stay unset.
   - **Human must, step 2 (later, separate approval): the full digest**, 9 requests, ≈ $0.006: `uv run python -m natalia.digest build`, then `uv run python -m natalia.digest show --save`.
+  - **Ping:** ✅ run by the human: `claude-haiku-5-5`, 18 input / 4 output tokens (`logs/llm-usage.jsonl`, 05:36 UTC).
+  - **First full digest** (approved by the human), 2026-10-17:
+    ```console
+    $ uv run python -m natalia.digest build                       # 2026-10-17, claude-haiku-5-5
+    general: 4/4 summarized, 3982 in / 1024 out tokens
+    economics: 5/5 summarized, 4964 in / 1406 out tokens
+    world-politics: 4/5 summarized, 4451 in / 1042 out tokens
+    technology: 5/5 summarized, 4448 in / 1283 out tokens
+    science: 5/5 summarized, 3191 in / 1151 out tokens
+    sport: 5/5 summarized, 5109 in / 1175 out tokens
+    crypto: 5/5 summarized, 4229 in / 1178 out tokens
+    markets: 5/5 summarized, 4335 in / 1132 out tokens
+    cambodia: 5/5 summarized, 8004 in / 1375 out tokens
+    
+    digest 2026-10-17: 44 stories, 0 summaries reused, 43 new, 1 missing; 9 requests, 42713 input + 10766 output tokens, 163 s
+    $ uv run python -m natalia.digest show --save | head -3
+    # Natalia daily digest — Saturday 17 October 2026
+    
+    News from the 24 hours before 07:00 Asia/Phnom_Penh. Summaries by claude-haiku-5-5 for 43 of 44 stories (9 requests, 42,713 input + 10,766 output tokens). …
+    ```
+    **Result:** ✅ 43/44 summarized, ❌ 1 missing (world-politics: "They fled Russia, but the West sent them back", BBC; no item came back for its id, and the raw reply isn't stored). **Cost: $0.0097** (42,713 × $0.10/M + 10,766 × $0.50/M), so about $0.29 for 30 days. That is above the estimate because Claude's tokenizer counted 1.7× the characters ÷ 4 estimate, and Khmer more than that (cambodia: 8,004 against ~2,850). The API reported 0 thinking tokens. Saved: `docs/digests/2026-10-17.md`.
+  - **Rerun for the missing story** (approved by the human, 1 request expected):
+    ```console
+    $ uv run python -m natalia.digest build                       # 2026-10-17, rerun for the missing story
+    general: 2/2 summarized, 2203 in / 534 out tokens
+    world-politics: 1/1 summarized, 1423 in / 361 out tokens
+    
+    digest 2026-10-17: 44 stories, 41 summaries reused, 3 new, 0 missing; 2 requests, 3626 input + 895 output tokens, 21 s
+    ```
+    **Result:** ✅ 44/44 summarized; ⚠️ **2 requests instead of 1, $0.0008 instead of ~$0.0002.** **Cause of the extra request:** the picks changed between the two builds with no new articles (last collected 2026-10-16 06:05 UTC). `top_stories` breaks equal scores with `id(story)`, a Python memory address that differs between runs (`natalia/topics.py`, `pick_topics`), and `load_window` has no `ORDER BY`. So in general the Oregon shooting story was now led by the Guardian's article instead of the BBC's, "They fled Russia…" moved from world-politics to general (and was summarized there), and another story moved into world-politics. **Fix (not made, task 1.4 code):** break ties on a stable key such as the lead article's id. Recorded as an open question.
+  - **Raw replies saved:** `natalia/digest.py` `save_reply()` writes `logs/digest-replies/<date>-<topic>-<HHMMSS>.json` (git-ignored) whenever a request leaves a story without a summary: ids sent and missing, token counts, `stop_reason` (new field on `llm.Result`, set by the Claude backend), and the raw reply text. Test added. `uv run pytest -q` → `144 passed` ✅, ruff clean ✅. Nothing was missing in the rerun, so no file yet.
+  - **Anthropic calls so far: 12 (1 ping + 9 + 2 digest), total ≈ $0.0105.**
+  - **Open question for the human:** fix the tie-break in `natalia/topics.py` `pick_topics` (`id(story)` → the lead article's id, plus an `ORDER BY` in `load_window`) so a re-run picks the same stories? It's task 1.4 code (merged), so it isn't changed here. Until it's fixed, a re-run can swap equal-score picks and send extra requests.
+  - **Human must:** (1) read `docs/digests/2026-10-17.md` and judge the quality. (2) Optional, needs approval: `uv run python -m natalia.digest build` again sends **one** request for the missing story (~1,000 in / ~250 out tokens, ~$0.0002); the other 43 are reused. (3) Review and merge `task/1.7-digest`, then tick 1.7.
 - **Before 2026-10-17:** ❌ blocked: every Gemini generation request answered `403 PERMISSION_DENIED: Your project has been denied access. Please contact support.`
 - **Done:** `natalia/llm.py` (the only `google-genai` import: retries on 429/5xx with the wait the error asks for, a per-process call cap counting retries, a JSON usage log per request in `logs/llm-usage.jsonl`, `ping` command); `natalia/digest.py` (one request per topic with the stories lacking a summary, JSON output, summaries stored and reused, digests/digest_items with request and token counts, Markdown rendering, `--dry-run`, `--no-llm`, `--model`). 119 tests pass (fakes only). Today's 45 picks stored without summaries; preview saved as `docs/digests/2026-10-16.md`. Stage doc `docs/06-digest.md`; decisions, README and `00-project-setup.md` updated.
 - **Gemini calls used: 3 of the 60 approved, 0 tokens** (1 × 404 model retired, 2 × 403 project denied; listed in `logs/llm-usage.jsonl`). 57 left.

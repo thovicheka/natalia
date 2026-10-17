@@ -17,6 +17,7 @@
 ## How it works
 - **`natalia/llm.py`** is the only module that imports an LLM SDK (`anthropic` or `google-genai`; a test checks it). `LLM_PROVIDER` (environment or `.env`) picks the backend, `anthropic` by default, and each provider has a pinned model (`MODELS`). `generate(prompt, system=…, json_schema=…)` returns the text and token counts; 429 and 5xx errors are retried up to 3 times after the wait the error asks for (capped at 65 s); `set_max_calls(n)` caps a process's requests, retries included; every request (failed ones too) is one JSON line in `logs/llm-usage.jsonl` (git-ignored). Thinking is turned down: `effort: "low"` on Claude, `thinking_level="low"` on Gemini 3, budget 0 on Gemini 2. Claude gets no `temperature` (Haiku 5.5 answers 400 to non-default sampling values), its JSON comes from structured outputs (`output_config.format`, with `additionalProperties: false` added to every object by `strict_schema()`), a refusal is an error, and the SDK's own retries are off, so every request counts against the cap. Claude's thinking tokens are logged apart from its output tokens.
 - **`natalia/digest.py build`**: for each topic, one request with the stories that have no summary yet. The prompt holds news only: id, headline, source, date and up to 2,500 characters of the article (or the feed's excerpt for paywalled sources); no links, nothing about the reader. The reply is JSON (`{"items": [{id, summary, why_it_matters}]}`), checked against the ids sent. Summaries go into `summaries` (one per article and language), so a re-run reuses them and sends nothing; the picks go into `digests` / `digest_items`, with request and token counts. Requests are spaced 13 s apart (≤ 5 a minute).
+- **A story left without a summary** (no item for its id, or a reply that isn't valid JSON): the raw reply is saved to `logs/digest-replies/` (git-ignored, news only) with the ids sent and missing and why the model stopped (`stop_reason`, e.g. `max_tokens`), and the build log names the file.
 - **`show`** renders a stored digest as Markdown (`--save` writes `docs/digests/<date>.md`). The bot (task 1.8) reads the same stored digest.
 - Why Claude Haiku 5.5, its cost, and why one request per topic: [decisions](decisions.md#llm-claude-haiku-55-on-the-anthropic-api-over-gemini-which-was-blocked), [Gemini (superseded)](decisions.md#llm-gemini-flash-on-the-free-tier-over-the-anthropic-api).
 
@@ -163,6 +164,41 @@ News from the 24 hours before 07:00 Asia/Phnom_Penh. Summaries pending: none gen
 *(summary pending: not generated yet)*
 ```
 **Result:** ⏳ the summaries are the human's step (access first). Running step 5 then fills them in for the same 45 stories.
+
+The first real digest, with Claude Haiku 5.5, on 2026-10-17 (approved by the human after a successful `ping`: 18 input / 4 output tokens). Saved to [`digests/2026-10-17.md`](digests/2026-10-17.md):
+```console
+$ uv run python -m natalia.digest build                       # 2026-10-17, claude-haiku-5-5
+general: 4/4 summarized, 3982 in / 1024 out tokens
+economics: 5/5 summarized, 4964 in / 1406 out tokens
+world-politics: 4/5 summarized, 4451 in / 1042 out tokens
+technology: 5/5 summarized, 4448 in / 1283 out tokens
+science: 5/5 summarized, 3191 in / 1151 out tokens
+sport: 5/5 summarized, 5109 in / 1175 out tokens
+crypto: 5/5 summarized, 4229 in / 1178 out tokens
+markets: 5/5 summarized, 4335 in / 1132 out tokens
+cambodia: 5/5 summarized, 8004 in / 1375 out tokens
+
+digest 2026-10-17: 44 stories, 0 summaries reused, 43 new, 1 missing; 9 requests, 42713 input + 10766 output tokens, 163 s
+$ uv run python -m natalia.digest show --save | head -3
+# Natalia daily digest — Saturday 17 October 2026
+
+News from the 24 hours before 07:00 Asia/Phnom_Penh. Summaries by claude-haiku-5-5 for 43 of 44 stories (9 requests, 42,713 input + 10,766 output tokens). …
+```
+**Result:** ✅ 43 of 44 summarized. **Cost:** 42,713 × $0.10/M + 10,766 × $0.50/M = $0.0043 + $0.0054 = **$0.0097** (about $0.29 for 30 days). That is above the dry-run estimate, for two reasons. Claude's tokenizer counted 1.7× the characters ÷ 4 estimate, and Khmer text far more: `cambodia` was 8,004 tokens against an estimate of ~2,850. Output also averaged ~245 tokens per story. The API reported 0 thinking tokens at `effort: "low"`. Billing is on `output_tokens`, which would include any thinking, so the cost above is complete either way.
+
+❌ **1 missing:** `world-politics` came back with 4 of 5 ("They fled Russia, but the West sent them back", BBC). The reply had no item for that id, or the item was dropped by the id check; the raw reply isn't stored, so which one can't be told. **Fix:** re-running `build` sends one request for that story only (the other 43 are reused). It shows as *summary pending* until then.
+
+The rerun (approved by the human, expecting 1 request) sent **2**:
+```console
+$ uv run python -m natalia.digest build                       # 2026-10-17, rerun for the missing story
+general: 2/2 summarized, 2203 in / 534 out tokens
+world-politics: 1/1 summarized, 1423 in / 361 out tokens
+
+digest 2026-10-17: 44 stories, 41 summaries reused, 3 new, 0 missing; 2 requests, 3626 input + 895 output tokens, 21 s
+```
+**Result:** ✅ 44 of 44 summarized; ⚠️ 2 requests instead of 1. **Cost:** 3,626 × $0.10/M + 895 × $0.50/M = **$0.0008** (expected ~$0.0002). **Cause of the extra request:** the picks changed between the two builds with no new articles (last collected 2026-10-16 06:05 UTC). `top_stories` breaks equal scores with `id(story)`, a Python memory address that differs between runs (`natalia/topics.py`, `pick_topics`), and `load_window` has no `ORDER BY`. So in general the Oregon shooting story was now led by the Guardian's article instead of the BBC's, "They fled Russia…" moved from world-politics to general (and was summarized there), and another story moved into world-politics. **Fix (not made, task 1.4 code):** break ties on a stable key such as the lead article's id. Recorded as an open question.
+
+Since then, a request that leaves a story without a summary saves its raw reply to `logs/digest-replies/<date>-<topic>-<HHMMSS>.json` (git-ignored), with the ids sent and missing, the token counts and the model's `stop_reason`. The rerun had nothing missing, so it saved nothing.
 </details>
 
 ### 6. Tests
