@@ -163,6 +163,29 @@ News from the 24 hours before 07:00 Asia/Phnom_Penh. Summaries pending: none gen
 *(summary pending: not generated yet)*
 ```
 **Result:** ⏳ the summaries are the human's step (access first). Running step 5 then fills them in for the same 45 stories.
+
+The first real digest, with Claude Haiku 5.5, on 2026-10-17 (approved by the human after a successful `ping`: 18 input / 4 output tokens). Saved to [`digests/2026-10-17.md`](digests/2026-10-17.md):
+```console
+$ uv run python -m natalia.digest build                       # 2026-10-17, claude-haiku-5-5
+general: 4/4 summarized, 3982 in / 1024 out tokens
+economics: 5/5 summarized, 4964 in / 1406 out tokens
+world-politics: 4/5 summarized, 4451 in / 1042 out tokens
+technology: 5/5 summarized, 4448 in / 1283 out tokens
+science: 5/5 summarized, 3191 in / 1151 out tokens
+sport: 5/5 summarized, 5109 in / 1175 out tokens
+crypto: 5/5 summarized, 4229 in / 1178 out tokens
+markets: 5/5 summarized, 4335 in / 1132 out tokens
+cambodia: 5/5 summarized, 8004 in / 1375 out tokens
+
+digest 2026-10-17: 44 stories, 0 summaries reused, 43 new, 1 missing; 9 requests, 42713 input + 10766 output tokens, 163 s
+$ uv run python -m natalia.digest show --save | head -3
+# Natalia daily digest — Saturday 17 October 2026
+
+News from the 24 hours before 07:00 Asia/Phnom_Penh. Summaries by claude-haiku-5-5 for 43 of 44 stories (9 requests, 42,713 input + 10,766 output tokens). …
+```
+**Result:** ✅ 43 of 44 summarized. **Cost:** 42,713 × $0.10/M + 10,766 × $0.50/M = $0.0043 + $0.0054 = **$0.0097** (about $0.29 for 30 days). That is above the dry-run estimate, for two reasons. Claude's tokenizer counted 1.7× the characters ÷ 4 estimate, and Khmer text far more: `cambodia` was 8,004 tokens against an estimate of ~2,850. Output also averaged ~245 tokens per story. The API reported 0 thinking tokens at `effort: "low"`. Billing is on `output_tokens`, which would include any thinking, so the cost above is complete either way.
+
+❌ **1 missing:** `world-politics` came back with 4 of 5 ("They fled Russia, but the West sent them back", BBC). The reply had no item for that id, or the item was dropped by the id check; the raw reply isn't stored, so which one can't be told. **Fix:** re-running `build` sends one request for that story only (the other 43 are reused). It shows as *summary pending* until then.
 </details>
 
 ### 6. Tests
