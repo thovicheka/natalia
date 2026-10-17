@@ -29,6 +29,7 @@
 
 - PyTorch and ONNX fp32 give the **same vectors** (cosine 1.0000 on all 2,614 articles). int8 stays within cosine ≥ 0.9916 of fp32 (mean 0.9963).
 - The production run (`embed`, all 2,614 articles): 75 s, **438 MB peak**, 312 MB after; a query process (`search`): 333 MB peak.
+- **Since task 1.9b: batches of 8 texts, not 16**: ~50 MB lower peak, same speed; vectors within cosine 0.995 of batch 16's ([Stage 8](08-daily-flow.md) step 8). The daily flow embeds new articles in a child process ([Stage 8](08-daily-flow.md)); chat searches in one too ([Stage 9](09-chat.md)).
 - English questions work very well. **Khmer questions find Khmer articles well but English articles poorly**: a Khmer query ranks Khmer articles first whatever their topic (see step 5). Why it's still the pick, and what to do about Khmer questions: [decisions](decisions.md#embeddings-a-small-local-model-on-cpu-over-an-embedding-api).
 
 ## Steps

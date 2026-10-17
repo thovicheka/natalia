@@ -2,7 +2,7 @@
 
 **Tasks:** 1.8 · **Status:** 🧑 code and tests done; the bot itself (BotFather, token, chat ID, first message, service) is the human's
 
-**What you'll have working by the end:** Natalia's own Telegram bot (not cloud-ai-lab's alert bot), running as a `systemd` service with long polling. It sends the stored digest to the owner's chat and answers the owner's `/start`, `/help` and `/digest [date]`. Anyone else gets one short refusal and nothing more. No LLM calls: the bot reads digests that [Stage 6](06-digest.md) stored.
+**What you'll have working by the end:** Natalia's own Telegram bot (not cloud-ai-lab's alert bot), running as a `systemd` service with long polling. It sends the stored digest to the owner's chat and answers the owner's `/start`, `/help` and `/digest [date]`. Anyone else gets one short refusal and nothing more. The commands make no LLM calls: they read digests that [Stage 6](06-digest.md) stored. Since task 1.9b, any other text from the owner is a question, answered by Haiku from the stored articles ([Stage 9](09-chat.md)).
 
 | Placeholder | In this build |
 |---|---|
@@ -109,7 +109,7 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now natalia-bot
 systemctl status natalia-bot --no-pager
 ```
-*What it does:* starts the bot now and at every boot, restarts it 10 s after a crash, and caps it at `MemoryMax=200M` (`MemoryHigh=160M` starts reclaiming before that). After a merge to `main`: `git -C ~/projects/natalia-runtime pull && sudo systemctl restart natalia-bot`.
+*What it does:* starts the bot now and at every boot, restarts it 10 s after a crash, and caps it at `MemoryMax=200M` (`MemoryHigh=160M` starts reclaiming before that). Since task 1.9b: `MemoryHigh=450M`, `MemoryMax=550M`, for chat's search child ([Stage 9](09-chat.md) step 5). After a merge to `main`: `git -C ~/projects/natalia-runtime pull && sudo systemctl restart natalia-bot`.
 
 > **If** `systemctl status` shows `status=203/EXEC`, **it means** the runtime's `.venv` is missing: run `uv sync --no-dev` in `~/projects/natalia-runtime`.
 
