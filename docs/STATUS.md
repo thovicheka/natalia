@@ -4,18 +4,18 @@ Live progress for agent work. The agent updates this after every step and pushes
 
 ## Summary
 
-**Run of 2026-10-17 (task 1.9b, branch `task/1.9b-chat` from `origin/main` at 091e9cc): done; waiting for the human's approval of the first real question. No API calls, no Telegram messages, $0.**
-- **Chat:** any text the owner sends the bot is answered by Haiku from the stored articles, with sources (headline link, site, date), in the question's language (Khmer or English). At most 20 questions a day; ~$0.001 each.
+**Run of 2026-10-17 (task 1.9b, branch `task/1.9b-chat` from `origin/main` at 091e9cc): done; the first real question worked from the CLI ($0.0005). The bot doesn't chat yet: the runtime was pulled before the merge.**
+- **Chat:** any text the owner sends the bot is answered by Haiku from the stored articles, with sources (headline link, site, date), in the question's language (Khmer or English). At most 20 questions a day; **$0.0005 measured** for the first one (4,244 in + 185 out tokens).
 - **Search in a child process:** the local model embeds the question there (332 MB for ~1 s, then freed).
 - **Daily flow:** collect and embed now run as child processes, and an embed failure doesn't stop the digest.
 - **Memory:** the embed child measured 438 MB at batch 16. Batch 8 cuts it to ~390 MB at the same speed.
-- **New caps** in the unit files (need `sudo`): worker 600M/700M, bot 450M/550M.
+- **New caps installed by the human:** worker 600M/700M, bot 450M/550M (checked with `systemctl show`).
 - **Tests:** 197 pass, with fakes for retrieval and Haiku.
 
 **Human must:**
-1. **Approve the first real question.** Command: `uv run python -m natalia.chat ask "Bitcoin price this week"`, ~$0.001. The human can also simply ask the bot once it's deployed.
-2. Review and merge `task/1.9b-chat`.
-3. Run the `sudo` commands in `docs/09-chat.md` step 5: pull the runtime, copy both unit files, `daemon-reload`, restart both services.
+1. Review and merge `task/1.9b-chat`.
+2. Then update the runtime and restart the bot: `git -C ~/projects/natalia-runtime pull --ff-only origin main`, then `sudo systemctl restart natalia-bot`. The restart can wait if no daily run is in progress; the worker picks up the new flow code on its next run without a restart.
+3. Ask the bot one English question, one Khmer question, and one the news can't answer.
 4. After the next daily run, record `systemctl show natalia-worker -p MemoryPeak`.
 
 **Update, 2026-10-17 (branch `task/1.9b-memory-plan` from `origin/main` at df6fcbc): the first real 1.9 run and a memory plan for the embed step. No code changed, $0.** PR #16 merged only the first 1.9 commit. The measurement commit (`a844718`: stage doc 08's measurement, STATUS, the ROADMAP memory row) is cherry-picked here. The human's manual run `radiant-inchworm` **Completed** in 313 s. The worker's cgroup peaked at **290 MiB**, and idles at **145 MiB**: 82 MiB worker + 56 MiB reclaimable page cache. The schedule is still off. **Plan for 1.9b's embed step** (ROADMAP 1.9b): run collect and embed each in a child process (embed alone isn't enough: the flow keeps collect's ~210 MB), expected peak ~520 MB. Raise the caps to `MemoryHigh=550M` / `MemoryMax=700M`, because ~520 MB would be throttled at 450M and a backlog embed could reach ~616 MB. Then measure, and keep 600M if the peak is well under 550 MB.
@@ -1607,7 +1607,7 @@ All checks passed!
 
 ## 1.9b — Chat in Telegram (RAG), owner-only
 - **Branch:** `task/1.9b-chat`, from `origin/main` at 091e9cc (1.9 and the memory plan merged).
-- **State:** ✅ agent part done. 🧑 the first real question (needs approval), merge, and the `sudo` cap change. No API calls, no messages sent, $0.
+- **State:** ✅ agent part done; ✅ first real question (run by the human); ✅ caps installed. 🧑 merge, then pull the runtime and restart the bot.
 - **Done:**
   - `natalia/chat.py`, the question's path:
     - **Language:** Khmer if the question is mostly Khmer script, otherwise English.
@@ -1646,7 +1646,17 @@ All checks passed!
   - `tests/test_bot.py`: 4 new chat tests.
   - `tests/test_daily.py`: 5 new tests (the embed step and the child processes).
   - Found while writing them: before `embed_step` was faked, `test_daily.py` and `test_daily_flow.py` ran the real `natalia.embeddings embed` child. It ran locally, nothing was missing so nothing was written, and nothing was sent anywhere. The fakes now cover it.
-- **Next:** 🧑 approve and ask the first real question (`uv run python -m natalia.chat ask "Bitcoin price this week"`, ~$0.001). Then merge, update the runtime, and install the caps (`docs/09-chat.md` step 5).
+- **First real question** (run by the human, 2026-10-17):
+  ```console
+  $ uv run python -m natalia.chat ask "Bitcoin price this week"
+  retrieved 8 articles: [2386, 4337, 304, 362, 263, 658, 289, 2326]
+  This week Bitcoin has mostly traded between about $80,000 and $84,000. …
+  covered=True, 5 sources, 1 requests, 4244 in + 185 out tokens, 4.7 s
+  ```
+  ✅ 5 sources, all stored articles; the `chat_questions` row has the tokens and no text. **Cost:** 4,244 × $0.10/M + 185 × $0.50/M = **$0.0005**.
+- **Caps** (human, `sudo`): ✅ `systemctl show` gives bot `MemoryHigh=471859200 MemoryMax=576716800`, worker `MemoryHigh=629145600 MemoryMax=734003200`.
+- **Bot:** ❌ not chatting yet. Three text messages got the 1.8 reply "questions come in a later version". **Cause:** `git -C ~/projects/natalia-runtime pull --ff-only origin main` ran before the merge, so the runtime is at `091e9cc` (main without 1.9b) and the restart started the old bot. **Fix:** merge, pull the runtime again, `sudo systemctl restart natalia-bot`. Stage doc 09, step 5, now says to pull only after the merge.
+- **Next:** 🧑 merge; pull the runtime; restart the bot; ask it the three test questions.
 - **Open:** keyword search (if names or tickers miss); the privacy notice in `/start` for family and friends (2.1); where questions are kept for conversation memory (2.4).
 
 ## 1.4b — Stable ties and a request guard

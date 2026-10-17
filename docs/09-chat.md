@@ -1,6 +1,6 @@
 # Stage 9 — Chat in Telegram (answers from the stored news)
 
-**Tasks:** 1.9b · **Status:** 🧑 code and tests done; the first real questions (paid, ~$0.001 each) and the new memory caps (`sudo`) are the human's
+**Tasks:** 1.9b · **Status:** ✅ first real question answered (CLI) and the new memory caps installed; 🧑 merge, then update the runtime so the bot runs the chat code
 
 **What you'll have working by the end:** send the bot any text message, in English or Khmer, and it answers in the same language from the articles Natalia has stored, with the sources it used (headline as a link, site, date). If the stored news doesn't cover the question, it says so instead of guessing. Owner only, at most 20 questions a day.
 
@@ -119,7 +119,25 @@ uv run python -m natalia.chat ask "<question>"
 
 <details><summary>Example from this build</summary>
 
-Not run yet: waiting for the human's approval of the first real call. **Result:** ⏳
+Run by the human on 2026-10-17:
+```console
+$ uv run python -m natalia.chat ask "Bitcoin price this week"
+retrieved 8 articles: [2386, 4337, 304, 362, 263, 658, 289, 2326]
+This week Bitcoin has mostly traded between about $80,000 and $84,000. It dipped to lows near $79,800 to $80,400 on Thursday October 15 after hot U.S. inflation data, then recovered to near $82,000 on Friday October 16. Bitcoin was down about 2.5% to 3% over the past week as of mid-week, and one analyst expects it to trade between $76,000 and $83,000 for the rest of October.
+
+<b>Sources</b>
+1. <a href="https://cointelegraph.com/markets/bitcoin-price-steadies-82k-fed-warsh-avoids-rate-hike-hints">Bitcoin price steadies around $82K after Fed’s Warsh avoids rate-hike hints</a> <i>(Cointelegraph · 16 Oct)</i>
+2. <a href="https://bitcoinmagazine.com/markets/bitcoin-price-briefly-dips-below-80000">Bitcoin Briefly Slides Below $80,000 On More Hot Inflation Data</a> <i>(Bitcoin Magazine · 15 Oct)</i>
+…
+5. <a href="https://cointelegraph.com/markets/bitcoin-dips-korea-kospi-lowest-close-since-april">Bitcoin dips to $80.1K as KOSPI closes at its lowest since April</a> <i>(Cointelegraph · 15 Oct)</i>
+
+covered=True, 5 sources, 1 requests, 4244 in + 185 out tokens, 4.7 s
+```
+The row it left in `chat_questions` (no question text):
+```console
+(37, 2026-10-17 16:15:24 UTC, 'en', 8, True, [4337, 2326, 263, 2386, 289], 'claude-haiku-5-5', 1, 4244, 185, None)
+```
+**Result:** ✅ answered from 5 of the 8 articles, every source a stored article. **Cost:** 4,244 × $0.10/M + 185 × $0.50/M = **$0.0005**, half the estimate; at the cap, ~$0.01 a day.
 </details>
 
 ### 5. 🧑 Update the runtime and raise the memory caps *(sudo, after merging)*
@@ -139,6 +157,32 @@ sudo systemctl restart natalia-bot natalia-worker
 systemctl show natalia-bot natalia-worker -p Id -p MemoryHigh -p MemoryMax
 ```
 *What it does:* brings the chat code to the runtime (no new packages; the table is already in the shared database, step 1). The bot's caps go from 160M/200M to **450M/550M** (the search child), the worker's from 450M/600M to **600M/700M** (the embed step, [Stage 8](08-daily-flow.md)). Expected: `MemoryHigh=471859200 MemoryMax=576716800` for the bot, `MemoryHigh=629145600 MemoryMax=734003200` for the worker. Don't restart the worker while a flow run is in progress.
+
+**Pull only after `task/1.9b-chat` is merged:** the runtime follows `main`. Pulled before the merge, it stays on the old code and the bot keeps answering text with "questions come in a later version".
+
+<details><summary>Example from this build</summary>
+
+```console
+$ git -C ~/projects/natalia-runtime pull --ff-only origin main
+Updating df6fcbc..091e9cc
+Fast-forward
+ deploy/natalia-worker.service |   2 +-
+ docs/08-daily-flow.md         | 157 ++++
+ docs/ROADMAP.md               |   7 ++++-
+ docs/STATUS.md                |  66 +++++
+$ systemctl show natalia-bot natalia-worker -p Id -p MemoryHigh -p MemoryMax
+MemoryHigh=471859200
+MemoryMax=576716800
+Id=natalia-bot.service
+
+MemoryHigh=629145600
+MemoryMax=734003200
+Id=natalia-worker.service
+```
+In Telegram, "yo sup twin", "you cant speak english or sum ?" and "How do I fix my car's brakes?" each got: *I only know /digest and /help for now; questions come in a later version.*
+
+**Result:** ✅ caps installed (copied from the working repo, which was on the branch). ❌ chat not live. **Cause:** the pull ran before the merge, so the runtime got `091e9cc` (main, without 1.9b) and the restarted bot is the 1.8 bot. **Fix:** merge `task/1.9b-chat`, then pull the runtime again and restart the bot (no `sudo` for the pull; the restart does).
+</details>
 
 ### 6. 🧑 Ask the bot
 In Telegram, send a question (no `/`). Expected: "typing…", then within ~5–10 s the answer and its sources. Try one in Khmer, and one the news can't answer ("How do I fix my car's brakes?"): it should say the stored news doesn't cover it.
