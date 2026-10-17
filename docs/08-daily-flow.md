@@ -99,6 +99,22 @@ systemctl show natalia-worker -p MemoryCurrent -p MemoryPeak
 ```
 *What it does:* the worker's memory, the flow included. Record the peak in `docs/STATUS.md`.
 
+<details><summary>Example from this build (first manual run, 2026-10-17 09:01 UTC)</summary>
+
+```console
+$ systemctl show natalia-worker -p MemoryCurrent -p MemoryPeak -p MemoryMax
+MemoryCurrent=152260608
+MemoryPeak=304340992
+MemoryMax=629145600
+$ grep -E "^(anon|file) " /sys/fs/cgroup/system.slice/natalia-worker.service/memory.stat
+anon 85778432
+file 58679296
+```
+**Result:** ✅ run `radiant-inchworm` **Completed** in 313 s. Peak **290 MiB** for the worker and the flow together, under the 600M cap. Idle **145 MiB**: 82 MiB of it is the worker's own memory (`anon`), 56 MiB page cache (`file`) that the kernel frees under pressure.
+</details>
+
+> **Before adding the embed step** (task 1.9b): run collect and embed as child processes and raise the caps to `MemoryHigh=550M` / `MemoryMax=700M`. Embedding in the flow's own process would bring the peak near 600M. The plan and its numbers are in ROADMAP 1.9b.
+
 ### 5. 🧑 Turn the schedule on
 In the UI: **Deployments → natalia-daily → the schedule's toggle**. Or:
 ```bash

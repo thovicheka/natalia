@@ -42,7 +42,7 @@ Don't swap these without asking the human.
 | PostgreSQL | ≤ 250 MB | small `shared_buffers`, few connections |
 | Telegram bot service | ≤ 200 MB | idle most of the time |
 | Website service | ≤ 250 MB | Phase 5 |
-| Natalia's Prefect worker + daily flow | ≤ 600 MB (`MemoryMax`) | own cgroup since 1.9; flow measured at 211 MB peak (collect + build, no embed yet; embed adds ~440 MB when 1.9b needs it), worker ~80–100 MB idle |
+| Natalia's Prefect worker + daily flow | ≤ 600 MB (`MemoryMax`) | own cgroup since 1.9. Measured on the first real run: **290 MiB peak**, **145 MiB idle** (82 MiB worker + 56 MiB reclaimable page cache). The embed step (1.9b) would bring it near the cap: see 1.9b's memory plan. |
 
 The embedding model is the biggest risk: PyTorch alone can take several hundred MB. Task 1.5 measures it before anything depends on it.
 
@@ -129,6 +129,11 @@ Goal: every morning at 07:00 the human gets a digest on Telegram: headline, link
   - The human's next priority (2026-10-17), pulled forward from Phase 2: it is **task 2.3 (Questions, RAG)** with its daily cap, for the owner only, so it doesn't wait for 2.1's allowlist.
   - 🤖 Any plain text message from the owner is answered by Claude Haiku (`natalia/llm.py`), using only stored articles retrieved with pgvector (plus keyword search if it helps), always with sources (headline + link). Say so when the news doesn't cover the question. Add the embedding step to the daily flow so new articles get vectors.
   - 🤖 A daily question cap (requests per day), so chat can't run up the bill; over the cap, a short reply says so. Strangers still get the one-line refusal and no LLM call.
+  - 🤖 **Memory plan for the embed step** (1.9's run measured 290 MiB peak and 145 MiB idle in the worker's cgroup, against `MemoryMax=600M`):
+    - **Run collect and embed each in a child process** (`python -m natalia.collect`, `python -m natalia.embeddings embed`), one after the other, so each one's memory is freed when it exits. Moving embed alone isn't enough: the flow process keeps collect's ~210 MB high-water mark, so an embed child on top would peak *higher* (~82 + 210 + 340 ≈ 630 MB).
+    - Expected peak with both as children: worker 82 + flow ~94 (Prefect only) + embed child ~340 (model + a day's new articles; 438 MB for all 2,614 articles at once) ≈ **520 MB**, plus page cache the kernel can reclaim.
+    - **Also raise the caps in `deploy/natalia-worker.service`: `MemoryHigh` 450M → 550M, `MemoryMax` 600M → 700M** (🧑 `sudo`). Reason: ~520 MB is above `MemoryHigh=450M`, which would throttle the embed step every morning, and a catch-up embed of a big backlog (~440 MB child) would reach ~616 MB, over 600M. A cap reserves nothing: the extra is used only for the minute or two embedding takes at 05:00.
+    - Measure the real cgroup peak on the first run (`systemctl show natalia-worker -p MemoryPeak`); if it is well under 550 MB, keep 600M instead.
   - 🧑 Approve the API use and ask it real questions.
   - **Done when:** answers cite real stored articles with links, a question the news doesn't cover gets an honest "not in the news", and the cap works.
 

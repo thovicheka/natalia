@@ -4,6 +4,10 @@ Live progress for agent work. The agent updates this after every step and pushes
 
 ## Summary
 
+**Update, 2026-10-17 (branch `task/1.9b-memory-plan` from `origin/main` at df6fcbc): the first real 1.9 run and a memory plan for the embed step. No code changed, $0.** PR #16 merged only the first 1.9 commit. The measurement commit (`a844718`: stage doc 08's measurement, STATUS, the ROADMAP memory row) is cherry-picked here. The human's manual run `radiant-inchworm` **Completed** in 313 s. The worker's cgroup peaked at **290 MiB**, and idles at **145 MiB**: 82 MiB worker + 56 MiB reclaimable page cache. The schedule is still off. **Plan for 1.9b's embed step** (ROADMAP 1.9b): run collect and embed each in a child process (embed alone isn't enough: the flow keeps collect's ~210 MB), expected peak ~520 MB. Raise the caps to `MemoryHigh=550M` / `MemoryMax=700M`, because ~520 MB would be throttled at 450M and a backlog embed could reach ~616 MB. Then measure, and keep 600M if the peak is well under 550 MB.
+
+**Human must:** review and merge `task/1.9b-memory-plan` (docs only). Turn the 1.9 schedule on when ready. The cap change needs `sudo` and comes with 1.9b, not now.
+
 **Run of 2026-10-17 (task 1.9, branch `task/1.9-daily` from `origin/main` at 45e0b0c): agent part done. No API calls, no Telegram messages, $0.** A Prefect flow `natalia-daily` collects, then builds the day's digest, with at most 12 Haiku requests. It runs in Natalia's own work pool `natalia` with its own worker (`deploy/natalia-worker.service`, `MemoryMax=600M`), as the human chose. The schedule is 05:00 Asia/Phnom_Penh, and the digest's cut-off moved to 05:00 with it. Nothing is sent on success; the owner gets a Telegram alert only on a failure, a plan over the cap, or an empty or incomplete digest. `/digest` with no date now sends yesterday's digest, then today's. The run was measured at 211 MB peak and ~15.5 min, without Prefect or Haiku. ROADMAP gains **1.9b**, owner-only RAG chat: task 2.3 pulled forward.
 
 **Human must:** review and merge `task/1.9-daily`, then follow `docs/08-daily-flow.md` steps 1–5: update the runtime (`git pull`, `uv sync --no-dev`, restart the bot), install the worker (`sudo`), register the deployment with its schedule off, run it once by hand (~9 requests, ~$0.01), record the worker's peak memory, then turn the schedule on.
@@ -1575,6 +1579,17 @@ All checks passed!
   5. One manual run (~9 requests, ~$0.01), then record `systemctl show natalia-worker -p MemoryPeak` here.
   6. Turn the schedule on.
 - **Open:** the 1.9 "done when" (two 05:00 runs Completed, peak memory recorded) needs the schedule on.
+- **First real run (by the human, 2026-10-17 09:01 UTC):** `radiant-inchworm` **Completed** in 313 s, deployment `natalia-daily` in pool `natalia`, schedule still inactive (`0 5 * * *`, Asia/Phnom_Penh, active False; read from the API).
+  ```console
+  $ systemctl show natalia-worker -p MemoryCurrent -p MemoryPeak -p MemoryMax
+  MemoryCurrent=152260608
+  MemoryPeak=304340992
+  MemoryMax=629145600
+  $ grep -E "^(anon|file) " /sys/fs/cgroup/system.slice/natalia-worker.service/memory.stat
+  anon 85778432
+  file 58679296
+  ```
+  ✅ Peak 290 MiB under the 600M cap; idle 145 MiB = 82 MiB worker + 56 MiB page cache. The embed step's memory plan is in ROADMAP 1.9b.
 
 ## 1.4b — Stable ties and a request guard
 - **Branch:** `task/1.4b-stable-ties`, from `origin/main` at ced0461 (1.7 fully merged, checked: 4fdddbd is in main).
