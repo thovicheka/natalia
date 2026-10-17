@@ -4,6 +4,22 @@ Live progress for agent work. The agent updates this after every step and pushes
 
 ## Summary
 
+**Run of 2026-10-17 (task 1.9c, branch `task/1.9c-natural-chat` from `origin/main` at 65130ae, 1.9b merged): done; waiting for the human's approval of the first real 1.9c messages. No API calls, no Telegram messages, $0.**
+- **Reply or search:** one small Haiku request either replies to small talk itself (no search, no sources) or writes a search query for news; only news runs the search and a second request with the articles.
+- **Sources only when used:** none when the answer says the news doesn't cover it (1.9b showed 3 under such an answer).
+- **Memory:** the last 6 messages per chat, in the bot's RAM, forgotten after 30 minutes or a restart; never stored or logged. "tell me more" becomes a real search query.
+- **Tone and language:** Khmer, English or mixed, casual or formal, as the person writes. Someone who seems upset gets a kind, brief reply and a gentle suggestion to talk to someone they trust.
+- **Kept:** owner-only, 20 messages a day (small talk included), tokens and requests in `chat_questions`, now with a `kind` column (migration 0004, applied).
+- **Cost:** small talk ~$0.0001; news ~$0.0006, or ~$0.0007 with memory (Khmer ~$0.001). Memory adds +$0.00005 to +$0.0001 per message in English, up to ~+$0.0003 in Khmer. At the cap, ≤ ~$0.02 a day.
+- **Tests:** 208 pass, with fakes for retrieval and Haiku.
+
+**Human must:**
+1. **Approve the first real 1.9c messages.** Command (4 messages, ~$0.0015, 4 of today's 20): `uv run python -m natalia.chat ask "yo sup twin" "Bitcoin price this week" "tell me more" "ugh today was rough"`.
+2. Review and merge `task/1.9c-natural-chat`.
+3. Then `git -C ~/projects/natalia-runtime pull --ff-only origin main` and `sudo systemctl restart natalia-bot`. No new packages; the migration is already applied.
+4. Decide whether 20 messages a day is enough now that small talk counts (50 would be ≤ ~$0.04 a day).
+5. Still from 1.9b: after the next daily run, record `systemctl show natalia-worker -p MemoryPeak`.
+
 **Run of 2026-10-17 (task 1.9b, branch `task/1.9b-chat` from `origin/main` at 091e9cc): done; the first real question worked from the CLI ($0.0005). The bot doesn't chat yet: the runtime was pulled before the merge.**
 - **Chat:** any text the owner sends the bot is answered by Haiku from the stored articles, with sources (headline link, site, date), in the question's language (Khmer or English). At most 20 questions a day; **$0.0005 measured** for the first one (4,244 in + 185 out tokens).
 - **Search in a child process:** the local model embeds the question there (332 MB for ~1 s, then freed).
@@ -12,11 +28,7 @@ Live progress for agent work. The agent updates this after every step and pushes
 - **New caps installed by the human:** worker 600M/700M, bot 450M/550M (checked with `systemctl show`).
 - **Tests:** 197 pass, with fakes for retrieval and Haiku.
 
-**Human must:**
-1. Review and merge `task/1.9b-chat`.
-2. Then update the runtime and restart the bot: `git -C ~/projects/natalia-runtime pull --ff-only origin main`, then `sudo systemctl restart natalia-bot`. The restart can wait if no daily run is in progress; the worker picks up the new flow code on its next run without a restart.
-3. Ask the bot one English question, one Khmer question, and one the news can't answer.
-4. After the next daily run, record `systemctl show natalia-worker -p MemoryPeak`.
+**Human, done:** merged as PR #18, pulled the runtime and restarted the bot; it answered its first questions at 16:28 UTC (log in 1.9c). Still open: the worker's `MemoryPeak` after the next daily run.
 
 **Update, 2026-10-17 (branch `task/1.9b-memory-plan` from `origin/main` at df6fcbc): the first real 1.9 run and a memory plan for the embed step. No code changed, $0.** PR #16 merged only the first 1.9 commit. The measurement commit (`a844718`: stage doc 08's measurement, STATUS, the ROADMAP memory row) is cherry-picked here. The human's manual run `radiant-inchworm` **Completed** in 313 s. The worker's cgroup peaked at **290 MiB**, and idles at **145 MiB**: 82 MiB worker + 56 MiB reclaimable page cache. The schedule is still off. **Plan for 1.9b's embed step** (ROADMAP 1.9b): run collect and embed each in a child process (embed alone isn't enough: the flow keeps collect's ~210 MB), expected peak ~520 MB. Raise the caps to `MemoryHigh=550M` / `MemoryMax=700M`, because ~520 MB would be throttled at 450M and a backlog embed could reach ~616 MB. Then measure, and keep 600M if the peak is well under 550 MB.
 
@@ -1604,6 +1616,47 @@ All checks passed!
   file 58679296
   ```
   ✅ Peak 290 MiB under the 600M cap; idle 145 MiB = 82 MiB worker + 56 MiB page cache. The embed step's memory plan is in ROADMAP 1.9b.
+
+## 1.9c — Natural chat
+- **Branch:** `task/1.9c-natural-chat`, from `origin/main` at 65130ae (1.9b merged as PR #18).
+- **State:** ✅ agent part done. 🧑 approve the first real messages, merge, pull the runtime, restart the bot. No API calls, no messages sent, $0.
+- **Why:** after the 1.9b deploy, "yo sup twin" and "you cant speak english or sum ?" were searched as news. The bot log also showed a "not covered" answer with 3 sources:
+  ```console
+  $ journalctl -u natalia-bot -n 30 --no-pager | grep "chat:"
+  … natalia.bot INFO chat: lang=en retrieved=8 covered=False sources=3 tokens=2018+125
+  … natalia.bot INFO chat: lang=en retrieved=8 covered=False sources=0 tokens=3733+128
+  ```
+- **Done:**
+  - `natalia/chat.py`:
+    - **Reply or search:** `REPLY_SYSTEM` and `REPLY_SCHEMA` {kind, reply, search}. `chat` → the reply as written, 1 request; `news` → search with the query it wrote (or the message, if empty), then the answer request as in 1.9b.
+    - **Memory:** `Memory` (thread-safe, last 6 per chat, 30 min idle, 600 characters per message plus 300 of cited headlines); `chat.MEMORY` is the bot's. Not remembered: failures and messages over the cap.
+    - Both prompts carry the conversation and say to match the latest message's language and tone. The answer prompt asks for new detail on follow-ups, and only for the ids whose facts are in the answer.
+    - **Sources:** none when `covered` is false, in `answer` and in `render`.
+    - Requests and tokens are summed over both requests.
+    - Cap renamed `DAILY_MESSAGES` (still 20); its text says "messages".
+    - CLI: `ask` takes several messages and remembers them in order.
+  - `migrations/0004_chat_kind.sql`: `chat_questions.kind` (`chat`/`news`). Applied:
+    ```console
+    $ uv run python -m natalia.db migrate
+    applied migrations: 0001_initial_schema, 0002_topic_rules_and_coverage, 0003_chat_questions, 0004_chat_kind
+    pending migrations: none
+    ```
+  - `natalia/bot.py`: passes `chat.MEMORY`; the log line adds `kind` and `requests`, still without the message's text; `/start` says "just talk to me".
+  - Docs: `09-chat.md` (how it works, cost table, steps 7–9, the 1.9b log problem); `ROADMAP.md` (1.9c, note on 2.4, bot memory row); `decisions.md` ("Chat, natural"); `07-bot.md`; `STYLE.md`; README.
+- **Measured (free):**
+  - "yo sup twin" searched as news (the old path, `--dry-run`): two Reuters stock pages and a motorbike story.
+  - Prompt sizes: reply-or-search system prompt 1,717 characters; 6 remembered messages ~1,200; the answer prompt 10,314 → 11,514 with memory. At 0.42 tokens per character (measured on 1.9b's question), memory adds ~510 tokens per request in English.
+  - **Cost change from memory:** +$0.00005 per small-talk message, +$0.0001 per news message (sent to both requests); up to ~+$0.0003 in Khmer. The reply-or-search request adds ~$0.0001 to each news question. At the cap: ~$0.014 a day (Khmer ~$0.02), against $0.01 for 1.9b.
+- **Tests:** `uv run pytest -q` → `208 passed` ✅, ruff clean ✅.
+  - `tests/test_chat.py`: 29, 10 of them new: small talk without search or sources, an empty reply, the query fallback, "not covered" without sources, the reply prompt's rules, memory (per chat, idle, cut, failures, never in the database), a follow-up carrying the previous exchange.
+  - `tests/test_bot.py`: the log line has `kind` and `requests`, and never the message's text.
+  - The tone, language and upset behaviour are prompt rules: tests check the rules are in the prompt, not how Haiku follows them. That needs the real messages (step 7 of `09-chat.md`).
+- **Next:** 🧑 approve the four-message run; merge; pull; restart the bot; try Khmer, mixed, and a news question the articles can't answer.
+- **Open:**
+  - Raise the cap now that small talk counts?
+  - A `/forget` command to clear memory at once (now: wait 30 minutes or restart the bot)?
+  - Keep history across restarts (2.4)?
+  - A Haiku refusal on a sensitive message shows the generic "sorry, try again later". That would be the wrong reply for someone upset; not seen yet.
 
 ## 1.9b — Chat in Telegram (RAG), owner-only
 - **Branch:** `task/1.9b-chat`, from `origin/main` at 091e9cc (1.9 and the memory plan merged).

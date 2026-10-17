@@ -37,6 +37,7 @@ Which doc a task goes into:
 | 1.8 (Telegram bot) | `07-bot.md` |
 | 1.9 (daily flow on Prefect) | `08-daily-flow.md` |
 | 1.9b (chat in Telegram) | `09-chat.md` (its embed step and memory: `08-daily-flow.md`) |
+| 1.9c (natural chat) | `09-chat.md` |
 | Later tasks | the doc the task names with `→` in [`ROADMAP.md`](ROADMAP.md); if it names none, a new doc with the next free number. Docs are numbered by build stage, in build order (the human's decision, 2026-10-16); a phase's "Document" task completes its stage docs instead of writing a separate phase doc. Ask the human if unsure. |
 
 A task that changes an earlier stage (e.g. 1.3 disabling feeds from 1.1) also updates that earlier doc.
