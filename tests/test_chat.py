@@ -1,5 +1,6 @@
-"""Chat (task 1.9b): language, the daily cap, retrieval, the answer and its sources. No LLM, no
-model: retrieval and the LLM are fakes; the database parts run in a rolled-back transaction."""
+"""Chat (tasks 1.9b, 1.9c): language, the daily cap, reply-or-search, memory, retrieval, the
+answer and its sources. No LLM, no model: retrieval and the LLM are fakes; the database parts run
+in a rolled-back transaction."""
 
 import json
 import subprocess
@@ -13,6 +14,7 @@ from natalia.collect import normalize_title
 from natalia.topics import LOCAL_TZ
 
 OWNER = 1111
+STRANGER_ID = 2222
 NOW = datetime(2026, 10, 17, 9, 0, tzinfo=LOCAL_TZ)
 
 
@@ -43,16 +45,26 @@ def articles(scratch):
     return ids
 
 
+NEWS = {"kind": "news", "reply": "", "search": "Zebracoin price"}
+
+
+def chat_reply(text):
+    return {"kind": "chat", "reply": text, "search": ""}
+
+
 class FakeLLM:
-    def __init__(self, reply=None, error=None):
-        self.reply, self.error, self.calls = reply, error, []
+    """Replies in order, one per request: a dict (sent as JSON), a raw string, or an error."""
+
+    def __init__(self, *replies, error=None):
+        self.replies, self.error, self.calls = list(replies), error, []
 
     def __call__(self, prompt, **kw):
         self.calls.append((prompt, kw))
         if self.error:
             raise self.error
+        reply = self.replies.pop(0)
         return llm.Result(
-            text=self.reply if isinstance(self.reply, str) else json.dumps(self.reply),
+            text=reply if isinstance(reply, str) else json.dumps(reply),
             model="fake-haiku",
             input_tokens=900,
             output_tokens=120,
@@ -72,13 +84,17 @@ def fake_retrieve(hits):
     return retrieve
 
 
+def news_answer(answer="Up.", ids=(), covered=True):
+    return {"covered": covered, "answer": answer, "source_ids": list(ids)}
+
+
 def ask(conn, question="How is Zebracoin doing?", hits=(), fake=None, **kw):
     return chat.answer(
         conn,
         question,
         OWNER,
         retrieve=kw.pop("retrieve", fake_retrieve(list(hits))),
-        generate=fake or FakeLLM({"covered": True, "answer": "Up.", "source_ids": []}),
+        generate=fake or FakeLLM(NEWS, news_answer()),
         now=kw.pop("now", NOW),
         log=lambda *_: None,
         **kw,
@@ -104,7 +120,7 @@ def test_language_follows_the_script_of_the_question(text, lang):
 
 def test_render_escapes_and_numbers_the_sources():
     src = chat.Source(1, "A <b> & c", "https://x.test/?a=1&b=2", "Site & Co", NOW)
-    a = chat.Answer("en", text="Rates rose <5%> & fell.", covered=True, sources=[src])
+    a = chat.Answer("en", "news", text="Rates rose <5%> & fell.", covered=True, sources=[src])
     out = chat.render(a)
     assert out.startswith("Rates rose &lt;5%&gt; &amp; fell.")
     assert '1. <a href="https://x.test/?a=1&amp;b=2">A &lt;b&gt; &amp; c</a>' in out
@@ -112,9 +128,9 @@ def test_render_escapes_and_numbers_the_sources():
 
 
 def test_render_in_khmer_and_the_special_cases():
-    km = chat.Answer("km", text="ចម្លើយ", covered=True, sources=[chat.Source(1, "T", "u", "S", NOW)])
+    km = chat.Answer("km", "news", "ចម្លើយ", True, sources=[chat.Source(1, "T", "u", "S", NOW)])
     assert "<b>ប្រភព</b>" in chat.render(km)
-    assert chat.render(chat.Answer("en", over_cap=True), cap=20).startswith("That's 20 questions")
+    assert chat.render(chat.Answer("en", over_cap=True), cap=20).startswith("That's 20 messages")
     assert "ថ្ងៃស្អែក" in chat.render(chat.Answer("km", over_cap=True))
     assert chat.render(chat.Answer("en", error="boom")) == chat.TEXTS["en"]["failed"]
     assert chat.render(chat.Answer("en", covered=False)) == chat.TEXTS["en"]["nothing"]
@@ -128,18 +144,30 @@ def test_prompt_holds_the_articles_and_the_question():
     assert len(p) < chat.TEXT_CHARS + 200
 
 
+def test_prompts_carry_the_conversation_oldest_first():
+    history = [chat.Turn("user", "Bitcoin?"), chat.Turn("natalia", "It fell 3%.")]
+    p = chat.build_reply_prompt("tell me more", history)
+    assert p.index("Them: Bitcoin?") < p.index("Natalia: It fell 3%.") < p.index("New message:")
+    src = chat.Source(7, "Title", "u", "Site", NOW, text="x")
+    q = chat.build_prompt("tell me more", [src], history)
+    assert q.index("[7] Title") < q.index("Them: Bitcoin?") < q.index("Question: tell me more")
+    assert chat.build_reply_prompt("hi") == "New message: hi"
+
+
 # --- answering --------------------------------------------------------------------------------
 
 
 def test_answer_uses_only_retrieved_articles_and_drops_made_up_ids(scratch, articles):
     a1, a2, _ = articles
-    fake = FakeLLM(
-        {"covered": True, "answer": "It rose, then fell.", "source_ids": [a2, 999999, a2]}
-    )
-    a = ask(scratch, hits=[(a1, 0.1), (a2, 0.12)], fake=fake)
-    assert (a.covered, a.text, [s.id for s in a.sources]) == (True, "It rose, then fell.", [a2])
-    assert (a.input_tokens, a.output_tokens, a.model) == (900, 150, "fake-haiku")
-    prompt, kw = fake.calls[0]
+    fake = FakeLLM(NEWS, news_answer("It rose, then fell.", [a2, 999999, a2]))
+    retrieve = fake_retrieve([(a1, 0.1), (a2, 0.12)])
+    a = ask(scratch, retrieve=retrieve, fake=fake)
+    assert (a.kind, a.covered, a.text) == ("news", True, "It rose, then fell.")
+    assert [s.id for s in a.sources] == [a2]
+    assert retrieve.asked == ["Zebracoin price"]  # the search query the first request wrote
+    assert (a.requests, a.input_tokens, a.output_tokens, a.model) == (2, 1800, 300, "fake-haiku")
+    assert fake.calls[0][1]["json_schema"] is chat.REPLY_SCHEMA
+    prompt, kw = fake.calls[1]
     assert f"[{a1}] Zebracoin hits <record> & more" in prompt and "Question: How is" in prompt
     assert (
         "English" in kw["system"] and kw["json_schema"] is chat.SCHEMA and kw["purpose"] == "chat"
@@ -149,15 +177,16 @@ def test_answer_uses_only_retrieved_articles_and_drops_made_up_ids(scratch, arti
 
 
 def test_a_khmer_question_asks_for_a_khmer_answer(scratch, articles):
-    fake = FakeLLM({"covered": True, "answer": "ចម្លើយ", "source_ids": [articles[0]]})
+    fake = FakeLLM(NEWS, news_answer("ចម្លើយ", [articles[0]]))
     a = ask(scratch, "តម្លៃ Zebracoin ថ្ងៃនេះ?", hits=[(articles[0], 0.1)], fake=fake)
-    assert a.language == "km" and "Khmer" in fake.calls[0][1]["system"]
+    assert a.language == "km"
+    assert all("mostly Khmer" in kw["system"] for _, kw in fake.calls)
 
 
-def test_nothing_retrieved_means_no_llm_call(scratch, articles):
-    fake = FakeLLM()
+def test_nothing_retrieved_means_no_answer_request(scratch, articles):
+    fake = FakeLLM(NEWS)
     a = ask(scratch, hits=[], fake=fake)
-    assert fake.calls == [] and a.covered is False
+    assert len(fake.calls) == 1 and a.covered is False
     assert chat.render(a) == chat.TEXTS["en"]["nothing"]
 
 
@@ -171,11 +200,11 @@ def test_question_is_recorded_without_its_text(scratch, articles):
     ]
     assert not any("question" in c or "text" in c for c in cols)
     row = scratch.execute(
-        "SELECT language, retrieved, covered, requests, input_tokens, output_tokens, error"
+        "SELECT kind, language, retrieved, covered, requests, input_tokens, output_tokens, error"
         " FROM chat_questions WHERE chat_id = %s",
         (OWNER,),
     ).fetchall()
-    assert row == [("en", 1, True, 1, 900, 150, None)]
+    assert row == [("news", "en", 1, True, 2, 1800, 300, None)]
 
 
 def test_daily_cap_counts_failures_and_resets_the_next_local_day(scratch, articles):
@@ -198,9 +227,9 @@ def test_retrieval_failure_is_an_answer_with_an_error(scratch, articles):
     def broken(question):
         raise chat.ChatError("retrieval exited with code 1: Killed")
 
-    fake = FakeLLM()
+    fake = FakeLLM(NEWS)
     a = ask(scratch, retrieve=broken, fake=fake)
-    assert a.error.startswith("retrieval") and fake.calls == []
+    assert a.error.startswith("retrieval") and len(fake.calls) == 1
     assert (
         scratch.execute("SELECT error FROM chat_questions WHERE chat_id = %s", (OWNER,))
         .fetchone()[0]
@@ -210,7 +239,9 @@ def test_retrieval_failure_is_an_answer_with_an_error(scratch, articles):
 
 def test_a_reply_that_isnt_json_is_an_error(scratch, articles):
     a = ask(scratch, hits=[(articles[0], 0.1)], fake=FakeLLM("not json"))
-    assert "isn't the JSON" in a.error and a.sources == []
+    assert "isn't the JSON" in a.error and a.kind == ""
+    b = ask(scratch, hits=[(articles[0], 0.1)], fake=FakeLLM(NEWS, "[1, 2]"))
+    assert "isn't the JSON" in b.error and b.sources == []
 
 
 def test_dry_run_records_nothing_and_calls_no_llm(scratch, articles):
@@ -224,8 +255,148 @@ def test_dry_run_records_nothing_and_calls_no_llm(scratch, articles):
         dry_run=True,
         log=lines.append,
     )
-    assert fake.calls == [] and lines and lines[0].startswith("Articles:")
+    assert fake.calls == [] and lines[0] == "New message: q" and lines[1].startswith("Articles:")
     assert chat.asked_today(scratch, OWNER, NOW) == 0
+
+
+# --- reply or search (task 1.9c) ---------------------------------------------------------------
+
+
+def test_small_talk_is_answered_without_searching_or_sources(scratch, articles):
+    fake, retrieve = FakeLLM(chat_reply("Not much, twin! You good? 😄")), fake_retrieve([])
+    a = ask(scratch, "yo sup twin", retrieve=retrieve, fake=fake)
+    assert (a.kind, a.text, a.sources, a.covered) == (
+        "chat",
+        "Not much, twin! You good? 😄",
+        [],
+        None,
+    )
+    assert retrieve.asked == [] and len(fake.calls) == 1 and a.requests == 1
+    assert chat.render(a) == "Not much, twin! You good? 😄"  # no "Sources"
+    row = scratch.execute(
+        "SELECT kind, retrieved, source_ids FROM chat_questions WHERE chat_id = %s", (OWNER,)
+    ).fetchone()
+    assert row == ("chat", 0, [])
+
+
+def test_the_reply_prompt_covers_tone_language_and_distress():
+    system = chat.REPLY_SYSTEM
+    for rule in (
+        "Match the person's language and tone",
+        "same mix",
+        "slang",
+        "genuinely upset",
+        "someone they trust",
+        "emergency services",
+        "Never make up news",
+        "No sources",
+    ):
+        assert rule in system
+    assert "{language}" in system and "{today}" in system
+
+
+def test_an_empty_chat_reply_is_an_error(scratch, articles):
+    a = ask(scratch, "hi", fake=FakeLLM(chat_reply("  ")))
+    assert a.error == "empty reply" and chat.render(a) == chat.TEXTS["en"]["failed"]
+
+
+def test_news_search_falls_back_to_the_message_when_the_query_is_empty(scratch, articles):
+    retrieve = fake_retrieve([(articles[0], 0.1)])
+    ask(
+        scratch,
+        "zebra news?",
+        retrieve=retrieve,
+        fake=FakeLLM({**NEWS, "search": " "}, news_answer()),
+    )
+    assert retrieve.asked == ["zebra news?"]
+
+
+def test_not_covered_lists_no_sources_even_if_ids_come_back(scratch, articles):
+    fake = FakeLLM(NEWS, news_answer("The stored news doesn't cover that.", [articles[0]], False))
+    a = ask(scratch, hits=[(articles[0], 0.1)], fake=fake)
+    assert a.covered is False and a.sources == []
+    assert chat.render(a) == "The stored news doesn't cover that."
+
+
+# --- memory (task 1.9c) -------------------------------------------------------------------------
+
+
+class Clock:
+    def __init__(self):
+        self.t = 1000.0
+
+    def __call__(self):
+        return self.t
+
+
+def test_memory_keeps_the_last_messages_per_chat_and_forgets_when_idle():
+    clock = Clock()
+    m = chat.Memory(size=4, idle_s=60, clock=clock)
+    for i in range(3):
+        m.add(OWNER, chat.Turn("user", f"q{i}"), chat.Turn("natalia", f"a{i}"))
+    m.add(STRANGER_ID, chat.Turn("user", "other"))
+    assert [t.text for t in m.get(OWNER)] == ["q1", "a1", "q2", "a2"]
+    assert [t.text for t in m.get(STRANGER_ID)] == ["other"]  # chats are kept apart
+    clock.t += 59
+    assert len(m.get(OWNER)) == 4
+    clock.t += 2
+    assert m.get(OWNER) == [] and m.get(STRANGER_ID) == []
+    m.add(OWNER, chat.Turn("user", "x"))
+    m.forget(OWNER)
+    assert m.get(OWNER) == []
+
+
+def test_a_follow_up_sees_the_previous_exchange(scratch, articles):
+    memory, a1 = chat.Memory(), articles[0]
+    hits = [(a1, 0.1)]
+    ask(
+        scratch,
+        "How is Zebracoin?",
+        hits=hits,
+        memory=memory,
+        fake=FakeLLM(NEWS, news_answer("It hit a record.", [a1])),
+    )
+    fake = FakeLLM({**NEWS, "search": "Zebracoin record"}, news_answer("More detail.", [a1]))
+    ask(scratch, "tell me more", hits=hits, fake=fake, memory=memory)
+    route_prompt, answer_prompt = fake.calls[0][0], fake.calls[1][0]
+    for p in (route_prompt, answer_prompt):
+        assert "Them: How is Zebracoin?" in p
+        assert "Natalia: It hit a record. [sources: Zebracoin hits <record> & more]" in p
+    assert [t.role for t in memory.get(OWNER)] == ["user", "natalia", "user", "natalia"]
+
+
+def test_memory_cuts_long_messages_and_skips_failures(scratch, articles):
+    memory = chat.Memory()
+    ask(scratch, "y" * 900, fake=FakeLLM(chat_reply("z" * 900)), memory=memory)
+    user, natalia = memory.get(OWNER)
+    assert len(user.text) == len(natalia.text) == chat.MEMORY_CHARS
+    ask(scratch, "hi", fake=FakeLLM(error=llm.LLMError("boom")), memory=memory)
+    ask(scratch, "hi", fake=FakeLLM(), memory=memory, cap=2)  # over the cap
+    assert len(memory.get(OWNER)) == 2
+
+
+def test_memory_is_never_written_to_the_database(scratch, articles):
+    cols = {
+        r[0]
+        for r in scratch.execute(
+            "SELECT column_name FROM information_schema.columns WHERE table_name = 'chat_questions'"
+        )
+    }
+    assert cols == {
+        "id",
+        "chat_id",
+        "asked_at",
+        "language",
+        "kind",
+        "retrieved",
+        "covered",
+        "source_ids",
+        "model",
+        "requests",
+        "input_tokens",
+        "output_tokens",
+        "error",
+    }
 
 
 # --- retrieval --------------------------------------------------------------------------------

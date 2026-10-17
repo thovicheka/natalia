@@ -2,6 +2,7 @@
 be sent, and handlers get stand-in updates. Digests are made up (no database)."""
 
 import asyncio
+import contextlib
 import logging
 from datetime import UTC, date, datetime
 from types import SimpleNamespace
@@ -286,3 +287,21 @@ def test_a_strangers_question_is_refused_and_never_asked():
     run(nb.handle_other(stranger, ctx))
     assert asked == [] and ctx.bot.sent == []
     assert stranger.effective_message.replies == [nb.REFUSAL_TEXT]
+
+
+def test_ask_question_uses_the_shared_memory_and_never_logs_the_text(monkeypatch, caplog):
+    from natalia import chat
+
+    seen = {}
+
+    def answer(conn, message, chat_id, *, memory, log):
+        seen["memory"] = memory
+        return chat.Answer("en", "chat", "Hey! 👋", requests=1, input_tokens=900, output_tokens=40)
+
+    monkeypatch.setattr(chat, "answer", answer)
+    monkeypatch.setattr(nb.db, "connect", lambda **kw: contextlib.nullcontext())
+    with caplog.at_level(logging.INFO, logger="natalia.bot"):
+        assert nb.ask_question("my private words", OWNER) == "Hey! 👋"
+    assert seen["memory"] is chat.MEMORY
+    assert "kind=chat" in caplog.text and "requests=1" in caplog.text
+    assert "private" not in caplog.text

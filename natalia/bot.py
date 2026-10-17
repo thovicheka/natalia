@@ -16,8 +16,10 @@ Commands (owner only): /start, /digest (yesterday's and today's digests, or /dig
 for one day), /help. They read stored digests: no LLM call. Task 2.2 adds /today and the
 per-topic commands. `send_text` is the daily flow's alert to the owner (task 1.9).
 
-Chat (task 1.9b, owner only): any other text message is a question, answered by Haiku from the
-stored articles, with sources (natalia/chat.py; one LLM request, ~$0.001, at most 20 a day).
+Chat (tasks 1.9b, 1.9c, owner only): any other text message is answered by Haiku
+(natalia/chat.py): small talk gets a friendly reply, news questions an answer from the stored
+articles with sources. The last few messages are remembered in RAM so follow-ups work. One or two
+LLM requests per message, ≤ ~$0.0008, at most 20 messages a day.
 Questions are answered one at a time, so only one retrieval process (~330 MB) runs at once.
 """
 
@@ -47,8 +49,8 @@ START_TEXT = (
     "Hi, I'm Natalia, your news agent. Every morning I send a digest of the day's top stories, "
     "each with its source, a short summary and why it matters.\n\n"
     "/digest: yesterday's and today's digests\n/digest 2026-10-16: one day's\n/help: this message"
-    "\n\nOr just ask me about the news, in English or Khmer, and I'll answer from the stored "
-    "articles, with links."
+    "\n\nOr just talk to me, in English or Khmer. Ask about the news and I'll answer from the "
+    "articles I've collected, with links."
 )
 NOT_TEXT = "I can only read text messages for now."
 
@@ -291,7 +293,7 @@ async def handle_other(update, context) -> None:
         return
     ask = context.bot_data.get("ask", ask_question)
     lock = context.bot_data.setdefault("chat_lock", asyncio.Lock())
-    async with lock:  # one question at a time: one retrieval process, one LLM call
+    async with lock:  # one message at a time: at most one search process
         await context.bot.send_chat_action(chat_id=owner, action="typing")
         reply = await asyncio.to_thread(ask, msg.text, owner)
     for part in pack([reply]):
@@ -303,18 +305,21 @@ async def handle_other(update, context) -> None:
         )
 
 
-def ask_question(question: str, chat_id: int) -> str:
-    """Answer one chat question (blocking: retrieval child + one LLM call); Telegram HTML."""
+def ask_question(message: str, chat_id: int) -> str:
+    """Answer one chat message (blocking: one or two LLM calls, maybe a search child); Telegram
+    HTML. The message's text is never logged."""
     from natalia import chat
 
     with db.connect(autocommit=True) as conn:
-        a = chat.answer(conn, question, chat_id, log=log.info)
+        a = chat.answer(conn, message, chat_id, memory=chat.MEMORY, log=log.info)
     log.info(
-        "chat: lang=%s retrieved=%d covered=%s sources=%d tokens=%d+%d%s",
+        "chat: kind=%s lang=%s retrieved=%d covered=%s sources=%d requests=%d tokens=%d+%d%s",
+        a.kind or "-",
         a.language,
         len(a.retrieved),
         a.covered,
         len(a.sources),
+        a.requests,
         a.input_tokens,
         a.output_tokens,
         " over cap" if a.over_cap else (f" error={a.error[:120]}" if a.error else ""),
