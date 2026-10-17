@@ -35,7 +35,7 @@ MODEL_FILES = {
 }
 DEFAULT_VARIANT = "int8"
 MAX_TOKENS = 256  # headline + excerpt + the start of the text; e5 allows 512
-BATCH = 16
+BATCH = 8  # texts per model run: 8 peaks ~50 MB lower than 16, same speed (task 1.9b)
 PASSAGE_CHARS = 1500  # characters of excerpt + body put after the headline
 BOS_ID, PAD_ID, EOS_ID, UNK_ID = 0, 1, 2, 3  # XLM-R's special tokens
 

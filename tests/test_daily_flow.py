@@ -27,11 +27,12 @@ def test_flow_runs_the_steps_and_alerts_through_the_bot(harness, monkeypatch):
         sent.append(text)
 
     monkeypatch.setattr(daily, "collect_step", lambda: calls.append("collect"))
+    monkeypatch.setattr(daily, "embed_step", lambda: calls.append("embed"))
     monkeypatch.setattr(daily, "build_step", build)
     monkeypatch.setattr(daily.bot, "send_text", send_text)
     state = daily.natalia_daily(day="2026-10-18", return_state=True)
     assert state.is_completed()
-    assert calls == ["collect", (date(2026, 10, 18), daily.DAILY_MAX_REQUESTS)]
+    assert calls == ["collect", "embed", (date(2026, 10, 18), daily.DAILY_MAX_REQUESTS)]
     assert len(sent) == 1 and "1 of 44 stories have no summary" in sent[0]
 
 
@@ -43,6 +44,7 @@ def test_flow_is_failed_when_the_cap_stops_the_build(harness, monkeypatch):
 
     stopped = BuildReport(day=date(2026, 10, 18), model="fake", planned=14, stopped=True)
     monkeypatch.setattr(daily, "collect_step", lambda: None)
+    monkeypatch.setattr(daily, "embed_step", lambda: None)
     monkeypatch.setattr(daily, "build_step", lambda day, m: stopped)
     monkeypatch.setattr(daily.bot, "send_text", send_text)
     state = daily.natalia_daily(day="2026-10-18", return_state=True)

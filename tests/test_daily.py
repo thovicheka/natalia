@@ -20,15 +20,22 @@ def report(**kw):
 class Run:
     """Fake steps and alert; records what happened, in order."""
 
-    def __init__(self, r=None, collect_error=None, build_error=None, alert_error=None):
+    def __init__(
+        self, r=None, collect_error=None, build_error=None, alert_error=None, embed_error=None
+    ):
         self.r, self.collect_error, self.build_error = r or report(), collect_error, build_error
-        self.alert_error = alert_error
+        self.alert_error, self.embed_error = alert_error, embed_error
         self.calls, self.alerts, self.logs = [], [], []
 
     def collect(self):
         self.calls.append("collect")
         if self.collect_error:
             raise self.collect_error
+
+    def embed(self):
+        self.calls.append("embed")
+        if self.embed_error:
+            raise self.embed_error
 
     def build(self, day, max_requests):
         self.calls.append(("build", day, max_requests))
@@ -45,6 +52,7 @@ class Run:
         return daily.run_daily(
             DAY,
             collect_step=self.collect,
+            embed_step=self.embed,
             build_step=self.build,
             alert=self.alert,
             log=self.logs.append,
@@ -52,10 +60,10 @@ class Run:
         )
 
 
-def test_success_collects_then_builds_with_the_cap_and_sends_nothing():
+def test_success_collects_embeds_then_builds_with_the_cap_and_sends_nothing():
     run = Run()
     summary = run()
-    assert run.calls == ["collect", ("build", DAY, daily.DAILY_MAX_REQUESTS)]
+    assert run.calls == ["collect", "embed", ("build", DAY, daily.DAILY_MAX_REQUESTS)]
     assert run.alerts == []
     assert summary["stories"] == 44 and summary["requests"] == 9 and summary["missing"] == 0
 
@@ -63,7 +71,7 @@ def test_success_collects_then_builds_with_the_cap_and_sends_nothing():
 def test_a_custom_cap_reaches_the_build():
     run = Run()
     run(max_requests=3)
-    assert run.calls[1] == ("build", DAY, 3)
+    assert run.calls[2] == ("build", DAY, 3)
 
 
 def test_over_the_cap_alerts_and_fails_without_building():
@@ -73,6 +81,15 @@ def test_over_the_cap_alerts_and_fails_without_building():
     assert len(run.alerts) == 1
     assert "14 LLM requests" in run.alerts[0] and "cap of 12" in run.alerts[0]
     assert "Nothing was sent" in run.alerts[0] and "2026-10-18" in run.alerts[0]
+
+
+def test_embed_failure_alerts_still_builds_then_fails():
+    run = Run(embed_error=daily.StepError("embed exited with code 1: Killed"))
+    with pytest.raises(daily.DailyError, match="embed failed"):
+        run()
+    assert run.calls == ["collect", "embed", ("build", DAY, daily.DAILY_MAX_REQUESTS)]
+    assert len(run.alerts) == 1 and "embed failed" in run.alerts[0]
+    assert "Building the digest anyway" in run.alerts[0]
 
 
 def test_collect_failure_alerts_and_skips_the_build():
@@ -128,3 +145,64 @@ def test_deploy_refuses_outside_the_runtime_worktree(monkeypatch, tmp_path, caps
     monkeypatch.setattr(daily, "RUNTIME", tmp_path / "natalia-runtime")
     assert daily.main(["deploy"]) == 1
     assert "natalia-runtime" in capsys.readouterr().out
+
+
+# --- child processes ----------------------------------------------------------------------------
+
+
+class FakePopen:
+    """Stands in for subprocess.Popen: prints `lines`, exits with `code` (or hangs)."""
+
+    calls = []
+
+    def __init__(self, lines, code=0, hang=False):
+        self.lines, self.code, self.hang, self.killed = lines, code, hang, False
+
+    def __call__(self, args, **kw):
+        FakePopen.calls.append(args)
+        self.stdout = iter(line + "\n" for line in self.lines)
+        return self
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def wait(self, timeout=None):
+        if self.hang:
+            raise daily.subprocess.TimeoutExpired("x", timeout)
+        return self.code
+
+    def kill(self):
+        self.killed = True
+
+
+def test_run_child_streams_its_output_and_runs_this_python():
+    out = []
+    daily.run_child(
+        "embed", ["natalia.embeddings", "embed"], popen=FakePopen(["a", "b"]), log=out.append
+    )
+    assert out == ["a", "b"]
+    assert FakePopen.calls[-1] == [daily.sys.executable, "-m", "natalia.embeddings", "embed"]
+
+
+def test_run_child_failure_quotes_the_last_lines():
+    fake = FakePopen(["one", "two", "three", "", "Killed"], code=137)
+    with pytest.raises(daily.StepError, match=r"code 137: two \| three \| Killed"):
+        daily.run_child("embed", ["x"], popen=fake, log=lambda s: None)
+
+
+def test_run_child_timeout_kills_it():
+    fake = FakePopen([], hang=True)
+    with pytest.raises(daily.StepError, match="ran over"):
+        daily.run_child("collect", ["x"], popen=fake, log=lambda s: None)
+    assert fake.killed
+
+
+def test_steps_are_child_processes(monkeypatch):
+    seen = []
+    monkeypatch.setattr(daily, "run_child", lambda name, args: seen.append((name, args)))
+    daily.collect_step()
+    daily.embed_step()
+    assert seen == [("collect", ["natalia.collect"]), ("embed", ["natalia.embeddings", "embed"])]

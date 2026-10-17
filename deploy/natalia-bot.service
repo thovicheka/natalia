@@ -23,9 +23,11 @@ ExecStart=/home/thovicheka/projects/natalia-runtime/.venv/bin/python -m natalia.
 Environment=PYTHONUNBUFFERED=1
 Restart=on-failure
 RestartSec=10
-# Memory budget (docs/ROADMAP.md): bot ≤ 200 MB. Measured ~80 MB with a digest loaded (task 1.8).
-MemoryMax=200M
-MemoryHigh=160M
+# Memory: the bot itself ~80 MB (task 1.8). Each chat question (task 1.9b) runs the search in a
+# child process that loads the local embedding model: 332 MB peak for ~1 s, freed right after,
+# one question at a time. Peak ~410 MB, so the caps are above it.
+MemoryMax=550M
+MemoryHigh=450M
 # Hardening: no privilege gain, private /tmp, the system read-only.
 NoNewPrivileges=true
 PrivateTmp=true

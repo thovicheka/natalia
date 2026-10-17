@@ -15,6 +15,10 @@ it inside every API URL) is kept at WARNING.
 Commands (owner only): /start, /digest (yesterday's and today's digests, or /digest 2026-10-16
 for one day), /help. They read stored digests: no LLM call. Task 2.2 adds /today and the
 per-topic commands. `send_text` is the daily flow's alert to the owner (task 1.9).
+
+Chat (task 1.9b, owner only): any other text message is a question, answered by Haiku from the
+stored articles, with sources (natalia/chat.py; one LLM request, ~$0.001, at most 20 a day).
+Questions are answered one at a time, so only one retrieval process (~330 MB) runs at once.
 """
 
 from __future__ import annotations
@@ -43,7 +47,11 @@ START_TEXT = (
     "Hi, I'm Natalia, your news agent. Every morning I send a digest of the day's top stories, "
     "each with its source, a short summary and why it matters.\n\n"
     "/digest: yesterday's and today's digests\n/digest 2026-10-16: one day's\n/help: this message"
+    "\n\nOr just ask me about the news, in English or Khmer, and I'll answer from the stored "
+    "articles, with links."
 )
+NOT_TEXT = "I can only read text messages for now."
+
 REFUSAL_TEXT = "Sorry, this is a private bot."
 
 
@@ -275,10 +283,49 @@ async def handle_other(update, context) -> None:
     if not is_owner(update, owner):
         await refuse(update, context)
         return
-    if update.effective_message:
-        await update.effective_message.reply_text(
-            "I only know /digest and /help for now; questions come in a later version."
+    msg = update.effective_message
+    if msg is None:
+        return
+    if not msg.text or msg.text.startswith("/"):
+        await msg.reply_text(NOT_TEXT if not msg.text else START_TEXT)
+        return
+    ask = context.bot_data.get("ask", ask_question)
+    lock = context.bot_data.setdefault("chat_lock", asyncio.Lock())
+    async with lock:  # one question at a time: one retrieval process, one LLM call
+        await context.bot.send_chat_action(chat_id=owner, action="typing")
+        reply = await asyncio.to_thread(ask, msg.text, owner)
+    for part in pack([reply]):
+        await context.bot.send_message(
+            chat_id=owner,
+            text=part,
+            parse_mode="HTML",
+            link_preview_options=_no_previews(),
         )
+
+
+def ask_question(question: str, chat_id: int) -> str:
+    """Answer one chat question (blocking: retrieval child + one LLM call); Telegram HTML."""
+    from natalia import chat
+
+    with db.connect(autocommit=True) as conn:
+        a = chat.answer(conn, question, chat_id, log=log.info)
+    log.info(
+        "chat: lang=%s retrieved=%d covered=%s sources=%d tokens=%d+%d%s",
+        a.language,
+        len(a.retrieved),
+        a.covered,
+        len(a.sources),
+        a.input_tokens,
+        a.output_tokens,
+        " over cap" if a.over_cap else (f" error={a.error[:120]}" if a.error else ""),
+    )
+    return chat.render(a)
+
+
+def _no_previews():
+    from telegram import LinkPreviewOptions
+
+    return LinkPreviewOptions(is_disabled=True)
 
 
 def main(argv: list[str] | None = None) -> int:

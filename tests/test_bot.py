@@ -40,6 +40,9 @@ class FakeBot:
     async def send_message(self, **kwargs):
         self.sent.append(kwargs)
 
+    async def send_chat_action(self, **kwargs):
+        self.sent.append({"action": kwargs["action"], "chat_id": kwargs["chat_id"]})
+
 
 class FakeMessage:
     def __init__(self):
@@ -49,16 +52,18 @@ class FakeMessage:
         self.replies.append(text)
 
 
-def update(chat_id):
-    return SimpleNamespace(
-        effective_chat=SimpleNamespace(id=chat_id), effective_message=FakeMessage()
-    )
+def update(chat_id, text=None):
+    msg = FakeMessage()
+    msg.text = text
+    return SimpleNamespace(effective_chat=SimpleNamespace(id=chat_id), effective_message=msg)
 
 
-def context(args=(), load=None):
+def context(args=(), load=None, ask=None):
     data = {"owner": OWNER}
     if load:
         data["load"] = load
+    if ask:
+        data["ask"] = ask
     return SimpleNamespace(bot=FakeBot(), bot_data=data, args=list(args))
 
 
@@ -234,3 +239,50 @@ def test_build_app_needs_no_network():
     app = nb.build_app("123:not-a-real-token", OWNER)
     assert app.bot_data["owner"] == OWNER
     assert len(app.handlers[0]) == 4
+
+
+# --- chat (task 1.9b) ---------------------------------------------------------------------------
+
+
+def test_owner_text_is_a_question_answered_in_html_after_typing():
+    asked = []
+
+    def ask(question, chat_id):
+        asked.append((question, chat_id))
+        return 'Up &amp; down.\n\n<b>Sources</b>\n1. <a href="u">T</a>'
+
+    ctx = context(ask=ask)
+    run(nb.handle_other(update(OWNER, "How is bitcoin?"), ctx))
+    assert asked == [("How is bitcoin?", OWNER)]
+    assert ctx.bot.sent[0] == {"action": "typing", "chat_id": OWNER}
+    reply = ctx.bot.sent[1]
+    assert reply["chat_id"] == OWNER and reply["parse_mode"] == "HTML"
+    assert reply["text"].startswith("Up &amp; down.")
+    assert reply["link_preview_options"].is_disabled is True
+
+
+def test_a_long_answer_is_split_under_the_limit():
+    ctx = context(ask=lambda q, c: "\n".join(["word " * 100] * 30))
+    run(nb.handle_other(update(OWNER, "q"), ctx))
+    texts = [m["text"] for m in ctx.bot.sent if "text" in m]
+    assert len(texts) > 1 and all(len(t) <= nb.MAX_MESSAGE for t in texts)
+
+
+def test_non_text_and_unknown_commands_ask_nothing():
+    asked = []
+    ctx = context(ask=lambda q, c: asked.append(q) or "")
+    photo, cmd = update(OWNER, None), update(OWNER, "/weather")
+    run(nb.handle_other(photo, ctx))
+    run(nb.handle_other(cmd, ctx))
+    assert asked == []
+    assert photo.effective_message.replies == [nb.NOT_TEXT]
+    assert cmd.effective_message.replies == [nb.START_TEXT]
+
+
+def test_a_strangers_question_is_refused_and_never_asked():
+    asked = []
+    ctx = context(ask=lambda q, c: asked.append(q) or "")
+    stranger = update(STRANGER, "What is the news?")
+    run(nb.handle_other(stranger, ctx))
+    assert asked == [] and ctx.bot.sent == []
+    assert stranger.effective_message.replies == [nb.REFUSAL_TEXT]
