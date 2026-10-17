@@ -9,7 +9,7 @@
 # Its own pool and worker, not the lab's: lab flows paused for approval hold the lab worker's
 # slots for up to 24 h, and its 900M cap is shared with lab training. The pool is created by the
 # worker on its first heartbeat if it doesn't exist. Flows run as child processes of the worker,
-# so MemoryMax covers the worker (~80-100 MB) and the flow (~250 MB measured peak, see the doc).
+# so MemoryMax covers the worker (~80-100 MB) and the flow (211 MB measured peak, docs/08).
 [Unit]
 Description=Prefect worker for Natalia (work pool "natalia")
 Wants=network-online.target
