@@ -42,7 +42,7 @@ Don't swap these without asking the human.
 | PostgreSQL | ≤ 250 MB | small `shared_buffers`, few connections |
 | Telegram bot service | ≤ 200 MB | idle most of the time |
 | Website service | ≤ 250 MB | Phase 5 |
-| Daily flow (collect + embed + summarize) | ≤ 700 MB peak | runs inside the lab worker's cgroup (`MemoryMax=900M`, shared with lab flows) |
+| Natalia's Prefect worker + daily flow | ≤ 600 MB (`MemoryMax`) | own cgroup since 1.9; flow measured at 211 MB peak (collect + build, no embed yet; embed adds ~440 MB when 1.9b needs it), worker ~80–100 MB idle |
 
 The embedding model is the biggest risk: PyTorch alone can take several hundred MB. Task 1.5 measures it before anything depends on it.
 
