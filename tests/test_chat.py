@@ -279,7 +279,7 @@ def test_small_talk_is_answered_without_searching_or_sources(scratch, articles):
     assert row == ("chat", 0, [])
 
 
-def test_the_reply_prompt_covers_tone_language_and_distress():
+def test_the_reply_prompt_covers_personality_tone_language_and_distress():
     system = chat.REPLY_SYSTEM
     for rule in (
         "Match the person's language and tone",
@@ -288,11 +288,62 @@ def test_the_reply_prompt_covers_tone_language_and_distress():
         "genuinely upset",
         "someone they trust",
         "emergency services",
-        "Never make up news",
+        "Never state current facts",
         "No sources",
+        "normal, friendly person",
+        "specialty is news",
+        'always "news"',
     ):
         assert rule in system
     assert "{language}" in system and "{today}" in system
+
+
+def test_a_general_question_is_answered_from_general_knowledge_and_says_so(scratch, articles):
+    steps = "Check the pads first. If the pedal feels soft, have a mechanic bleed the brakes."
+    retrieve = fake_retrieve([])
+    a = ask(
+        scratch,
+        "How do I fix my car's brakes?",
+        retrieve=retrieve,
+        fake=FakeLLM({"kind": "general", "reply": steps, "search": ""}),
+    )
+    assert (a.kind, a.text, a.sources, a.requests) == ("general", steps, [], 1)
+    assert retrieve.asked == []
+    out = chat.render(a)
+    assert out.startswith("Check the pads first.") and "Sources" not in out
+    assert out.endswith("<i>ℹ️ General knowledge, not from today's news.</i>")
+    km = chat.render(chat.Answer("km", "general", "ចម្លើយ"))
+    assert chat.TEXTS["km"]["general"] in km
+    assert chat.TEXTS["en"]["general"] not in chat.render(chat.Answer("en", "chat", "Hey!"))
+    row = scratch.execute("SELECT kind FROM chat_questions WHERE chat_id = %s", (OWNER,)).fetchone()
+    assert row == ("general",)
+
+
+def test_an_unknown_kind_is_treated_as_chat(scratch, articles):
+    a = ask(scratch, "hm", fake=FakeLLM({"kind": "poem", "reply": "Hi!", "search": ""}))
+    assert (a.kind, a.text) == ("chat", "Hi!")
+
+
+def test_the_news_prompt_asks_for_analysis_and_current_facts_only_from_articles():
+    for rule in (
+        "only source for facts about current events",
+        "out of date",
+        "why it matters",
+        "connect related stories",
+        "compare how they report it",
+        "what changed",
+        "Don't guess",
+        "oldest first",
+    ):
+        assert rule in chat.SYSTEM
+
+
+def test_articles_are_listed_oldest_first():
+    new = chat.Source(1, "Newer", "u", "A", NOW, text="x")
+    old = chat.Source(2, "Older", "u", "B", NOW - timedelta(days=2), text="x")
+    undated = chat.Source(3, "Undated", "u", "C", None, text="x")
+    p = chat.build_prompt("What changed?", [new, old, undated])
+    assert p.index("[3] Undated") < p.index("[2] Older") < p.index("[1] Newer")
 
 
 def test_an_empty_chat_reply_is_an_error(scratch, articles):
