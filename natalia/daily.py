@@ -1,4 +1,4 @@
-"""Natalia's daily flow (task 1.9): collect, then build and store the day's digest.
+"""Natalia's daily flow (task 1.9): collect, embed, then build and store the day's digest.
 
     uv run python -m natalia.daily deploy    # register it, schedule OFF (from natalia-runtime)
 
@@ -6,6 +6,12 @@ Runs on the lab's self-hosted Prefect, in Natalia's own work pool `natalia` (its
 `deploy/natalia-worker.service`, so lab flows waiting for approval can't hold its slot). The
 schedule is 05:00 Asia/Phnom_Penh, the digest's cut-off (natalia.topics.DIGEST_TIME), and it is
 registered OFF: the owner turns it on after a manual test run.
+
+Memory (task 1.9b): collect (~210 MB) and embed (~440 MB, the local model) each run in their own
+child process, one after the other, so each one's memory is freed when it exits; the flow's own
+process holds only Prefect (~95 MB) and the digest build. In one process, Python would keep
+collect's memory and the embed step would add to it. Embed failing doesn't stop the digest
+(only chat search misses the new articles): the owner is alerted and the run ends Failed.
 
 On success nothing is sent: the bot's /digest serves the stored digest. The owner gets one short
 Telegram message only when something needs a look: a step failed, the plan was over the request
@@ -16,14 +22,15 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import time
+import subprocess
+import sys
+from collections import deque
 from datetime import date, datetime
 from pathlib import Path
 
 from prefect import flow
 
 from natalia import bot, db, digest
-from natalia.collect import SOURCES_FILE, Fetcher, collect, load_sources, print_report
 from natalia.topics import DIGEST_TIME, LOCAL_TZ
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -34,19 +41,48 @@ SCHEDULE = f"{DIGEST_TIME.minute} {DIGEST_TIME.hour} * * *"  # 05:00, in LOCAL_T
 DAILY_MAX_REQUESTS = 12  # one request per topic (at most 9) + room for retries; ~$0.013 at most
 FLOW_TIMEOUT_S = 3600
 ALERT_CHARS = 300  # of an error message quoted in an alert
+STEP_TIMEOUT_S = {"collect": 2400, "embed": 900}
 
 
 class DailyError(RuntimeError):
     """The run needs the owner's attention (already alerted); the flow run is marked Failed."""
 
 
+class StepError(RuntimeError):
+    """A child process (collect or embed) failed."""
+
+
+def run_child(name: str, args: list[str], *, popen=subprocess.Popen, log=print) -> None:
+    """Run `python -m <args>` in a child process, its output going to the flow's log line by
+    line. Raises StepError (with the last lines) if it fails or runs over its timeout."""
+    tail: deque[str] = deque(maxlen=3)
+    with popen(
+        [sys.executable, "-m", *args],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+    ) as p:
+        for line in p.stdout:
+            line = line.rstrip()
+            log(line)
+            if line.strip():
+                tail.append(line.strip())
+        try:
+            code = p.wait(timeout=STEP_TIMEOUT_S[name])
+        except subprocess.TimeoutExpired:
+            p.kill()
+            raise StepError(f"{name} ran over {STEP_TIMEOUT_S[name]} s") from None
+    if code != 0:
+        raise StepError(f"{name} exited with code {code}: {' | '.join(tail)}")
+
+
 def collect_step() -> None:
-    sources = load_sources(SOURCES_FILE)
-    start = time.monotonic()
-    fetcher = Fetcher()
-    with db.connect(autocommit=True) as conn:
-        stats = collect(conn, sources, fetcher=fetcher, log=print)
-    print_report(stats, time.monotonic() - start, fetcher.requests)
+    run_child("collect", ["natalia.collect"])
+
+
+def embed_step() -> None:
+    run_child("embed", ["natalia.embeddings", "embed"])
 
 
 def build_step(day: date, max_requests: int) -> digest.BuildReport:
@@ -68,13 +104,15 @@ def run_daily(
     *,
     max_requests: int = DAILY_MAX_REQUESTS,
     collect_step=collect_step,
+    embed_step=embed_step,
     build_step=build_step,
     alert=alert_owner,
     log=print,
 ) -> dict:
-    """Collect, then build `day`'s digest (default: today, local time). Alerts the owner and
-    raises DailyError if a step fails or the build was stopped by the cap; alerts (without
-    failing) if the digest is empty or has stories without a summary."""
+    """Collect, embed, then build `day`'s digest (default: today, local time). Alerts the owner
+    and raises DailyError if collect or the build fails or the build was stopped by the cap; if
+    embed fails, alerts, still builds the digest, then raises. Alerts (without failing) if the
+    digest is empty or has stories without a summary."""
     day = day or datetime.now(LOCAL_TZ).date()
 
     def notify(text: str) -> None:
@@ -88,6 +126,15 @@ def run_daily(
     except Exception as e:
         notify(f"collect failed: {_short(e)}. No digest built.")
         raise DailyError(f"collect failed: {e}") from e
+    embed_error = None
+    try:
+        embed_step()
+    except Exception as e:
+        embed_error = e
+        notify(
+            f"embed failed: {_short(e)}. Building the digest anyway; chat won't find today's "
+            "new articles until `uv run python -m natalia.embeddings embed` runs."
+        )
     try:
         r = build_step(day, max_requests)
     except Exception as e:
@@ -123,16 +170,20 @@ def run_daily(
         f"digest {day}: {r.stories} stories, {r.reused} reused, {r.summarized} new, "
         f"{len(r.missing)} missing; {r.requests} requests"
     )
+    if embed_error is not None:
+        raise DailyError(f"embed failed: {embed_error}") from embed_error
     return summary
 
 
 @flow(name=DEPLOYMENT, log_prints=True, retries=0, timeout_seconds=FLOW_TIMEOUT_S)
 def natalia_daily(day: str | None = None, max_requests: int = DAILY_MAX_REQUESTS) -> dict:
-    """Collect, then build and store the day's digest. `day`: YYYY-MM-DD (default: today)."""
+    """Collect, embed, then build and store the day's digest. `day`: YYYY-MM-DD (default:
+    today)."""
     return run_daily(
         date.fromisoformat(day) if day else None,
         max_requests=max_requests,
         collect_step=collect_step,
+        embed_step=embed_step,
         build_step=build_step,
         alert=alert_owner,
     )
@@ -150,7 +201,7 @@ def deploy() -> int:
         name=DEPLOYMENT,
         work_pool_name=POOL,
         schedules=[Cron(SCHEDULE, timezone=str(LOCAL_TZ), active=False)],
-        description="Collect, then build and store the day's digest (task 1.9).",
+        description="Collect, embed, then build and store the day's digest (tasks 1.9, 1.9b).",
     )
     return 0
 

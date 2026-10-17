@@ -46,6 +46,16 @@ Why each tool and rule was picked, and what it was picked over. The short versio
   - **Hosted PostgreSQL** (Supabase, Neon): no install, but data leaves the server and free tiers have limits.
 - **Trade-offs:** installing it needs `sudo` (a 🧑 step). pgvector isn't a "trusted" extension, so the human creates it once as superuser; the migration only checks for it. Localhost only.
 
+## Chat: answers from stored articles, search in a child process, 20 questions a day (task 1.9b)
+- **What:** any text the owner sends the bot is a question. The local e5 model embeds it and finds the 8 nearest articles of the last 30 days (pgvector). One Haiku request answers from those articles only, in the question's language (Khmer if it's written in Khmer script), as JSON: covered or not, the answer, the ids it used. The reply lists those sources from the database (headline link, site, date); ids the model made up are dropped.
+- **Why a child process for the search:** the model takes ~330 MB. Kept in the bot, that would be ~330 MB more all day on a 4 GB server; in a child it's held for ~1 s per question. Cost: ~1 s of model loading per question, small next to Haiku's few seconds. The bot's caps go to 450M/550M for that peak. Same idea as the daily flow's collect and embed children (decided in the 1.9 memory plan).
+- **Why Haiku decides "covered", not a similarity cut-off:** e5's scores are bunched (unrelated questions 0.79–0.81, related 0.82–0.89 on this data), so a cut-off would drop good articles or keep bad ones. The distance limit (0.25) only drops junk; the prompt makes Haiku say when the articles don't answer, instead of using its own knowledge.
+- **Cap: 20 questions per chat per day** (~$0.001 each, so ≤ ~$0.02 a day). A question counts before anything runs, so failures and retries by the user count too.
+- **The question's text isn't stored** (`chat_questions` keeps counts, tokens and source ids); it is sent to Anthropic to be answered. Task 2.4 (conversation memory) will decide how history is kept.
+- **Vector search only, no keyword search yet.** ROADMAP allows "keyword search if it helps"; add it if real questions with names or tickers miss.
+- **Alternatives:** keep the model in the bot (simpler, ~330 MB more all day); keyword search only (no model, but no Khmer → English); an embedding API (paid, and the 1.5 decision is local).
+- **Embed batch 8 instead of 16** (same task): ~50 MB lower peak for the daily embed step, same speed; vectors within cosine 0.995.
+
 ## Daily run: Natalia's own Prefect pool and worker, built at 05:00, alerts only (task 1.9)
 - **Decided by the human on 2026-10-17**, after the agent laid out the trade-offs. Supersedes the pool and the 07:00 time in "Scheduling" below; Prefect itself stays.
 - **Own pool `natalia` and worker `natalia-worker.service`** (limit 1, `MemoryMax=600M`), on the lab's Prefect server, running from `~/projects/natalia-runtime`.

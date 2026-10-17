@@ -9,7 +9,10 @@
 # Its own pool and worker, not the lab's: lab flows paused for approval hold the lab worker's
 # slots for up to 24 h, and its 900M cap is shared with lab training. The pool is created by the
 # worker on its first heartbeat if it doesn't exist. Flows run as child processes of the worker,
-# so MemoryMax covers the worker (~80-100 MB) and the flow (211 MB measured peak, docs/08).
+# so the caps cover everything: the worker (82 MB), the flow process (~95 MB, Prefect and the
+# digest build) and, one at a time, its own children: collect (~210 MB), then embed (~390 MB,
+# the local model). Peak ~570 MB at the embed step (task 1.9b, docs/08). MemoryHigh is above it
+# so the embed step isn't throttled every morning; MemoryMax leaves ~130 MB of room.
 [Unit]
 Description=Prefect worker for Natalia (work pool "natalia")
 Wants=network-online.target
@@ -27,8 +30,8 @@ Environment=PYTHONUNBUFFERED=1
 ExecStart=/home/thovicheka/projects/natalia-runtime/.venv/bin/prefect worker start --pool natalia --type process --name natalia-worker --limit 1 --install-policy never
 Restart=always
 RestartSec=10
-MemoryHigh=450M
-MemoryMax=600M
+MemoryHigh=600M
+MemoryMax=700M
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=full

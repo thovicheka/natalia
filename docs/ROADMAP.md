@@ -40,9 +40,9 @@ Don't swap these without asking the human.
 |---|---|---|
 | Prefect server + worker (lab) | ~300 MB | already running |
 | PostgreSQL | ≤ 250 MB | small `shared_buffers`, few connections |
-| Telegram bot service | ≤ 200 MB | idle most of the time |
+| Telegram bot service | ≤ 550 MB (`MemoryMax`) | ~80 MB idle; each chat question (1.9b) runs a ~330 MB search child for ~1 s, one at a time |
 | Website service | ≤ 250 MB | Phase 5 |
-| Natalia's Prefect worker + daily flow | ≤ 600 MB (`MemoryMax`) | own cgroup since 1.9. Measured on the first real run: **290 MiB peak**, **145 MiB idle** (82 MiB worker + 56 MiB reclaimable page cache). The embed step (1.9b) would bring it near the cap: see 1.9b's memory plan. |
+| Natalia's Prefect worker + daily flow | ≤ 700 MB (`MemoryMax`) | own cgroup since 1.9. First real run (no embed): **290 MiB peak**, **145 MiB idle** (82 MiB worker + 56 MiB reclaimable cache). With 1.9b's embed step, collect and embed run as child processes: expected peak ~570 MB at the embed step (`MemoryHigh=600M`). |
 
 The embedding model is the biggest risk: PyTorch alone can take several hundred MB. Task 1.5 measures it before anything depends on it.
 
@@ -125,7 +125,7 @@ Goal: every morning at 07:00 the human gets a digest on Telegram: headline, link
   - 🧑 Install the worker (`sudo`), register the deployment with its schedule OFF (05:00 Asia/Phnom_Penh), run it once by hand, then turn the schedule on. The schedule calls Haiku every day (~$0.01).
   - **Done when:** the digest is built at 05:00 two mornings in a row, both runs are Completed in the Prefect UI, and peak memory is recorded.
 
-- [ ] **1.9b Chat in Telegram (RAG), owner-only** — 🤖 (🧑 tests it)
+- [ ] **1.9b Chat in Telegram (RAG), owner-only** — 🤖 (🧑 tests it) → `docs/09-chat.md` (embed step: `docs/08-daily-flow.md`)
   - The human's next priority (2026-10-17), pulled forward from Phase 2: it is **task 2.3 (Questions, RAG)** with its daily cap, for the owner only, so it doesn't wait for 2.1's allowlist.
   - 🤖 Any plain text message from the owner is answered by Claude Haiku (`natalia/llm.py`), using only stored articles retrieved with pgvector (plus keyword search if it helps), always with sources (headline + link). Say so when the news doesn't cover the question. Add the embedding step to the daily flow so new articles get vectors.
   - 🤖 A daily question cap (requests per day), so chat can't run up the bill; over the cap, a short reply says so. Strangers still get the one-line refusal and no LLM call.

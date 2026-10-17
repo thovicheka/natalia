@@ -11,7 +11,8 @@ Two providers, picked by LLM_PROVIDER (environment or `.env`):
 - `gemini`: Gemini Flash on the free tier, key GEMINI_API_KEY. Blocked for this account
   (403 "project denied access", 2026-10-16); kept as an option.
 Keys are never printed or logged. Never pass private data here (CLAUDE.md rule 10); news content
-is fine.
+is fine. Chat (task 1.9b) sends the owner's own questions, which is the feature the owner asked
+for; nothing else private (keys, `.env`, other people's data).
 
 Limits: rate-limit errors (429) are retried after a short wait, a few times. `max_calls` caps the
 requests one process may make, retries included, so a bug can't burn the day's quota.

@@ -4,6 +4,20 @@ Live progress for agent work. The agent updates this after every step and pushes
 
 ## Summary
 
+**Run of 2026-10-17 (task 1.9b, branch `task/1.9b-chat` from `origin/main` at 091e9cc): done; the first real question worked from the CLI ($0.0005). The bot doesn't chat yet: the runtime was pulled before the merge.**
+- **Chat:** any text the owner sends the bot is answered by Haiku from the stored articles, with sources (headline link, site, date), in the question's language (Khmer or English). At most 20 questions a day; **$0.0005 measured** for the first one (4,244 in + 185 out tokens).
+- **Search in a child process:** the local model embeds the question there (332 MB for ~1 s, then freed).
+- **Daily flow:** collect and embed now run as child processes, and an embed failure doesn't stop the digest.
+- **Memory:** the embed child measured 438 MB at batch 16. Batch 8 cuts it to ~390 MB at the same speed.
+- **New caps installed by the human:** worker 600M/700M, bot 450M/550M (checked with `systemctl show`).
+- **Tests:** 197 pass, with fakes for retrieval and Haiku.
+
+**Human must:**
+1. Review and merge `task/1.9b-chat`.
+2. Then update the runtime and restart the bot: `git -C ~/projects/natalia-runtime pull --ff-only origin main`, then `sudo systemctl restart natalia-bot`. The restart can wait if no daily run is in progress; the worker picks up the new flow code on its next run without a restart.
+3. Ask the bot one English question, one Khmer question, and one the news can't answer.
+4. After the next daily run, record `systemctl show natalia-worker -p MemoryPeak`.
+
 **Update, 2026-10-17 (branch `task/1.9b-memory-plan` from `origin/main` at df6fcbc): the first real 1.9 run and a memory plan for the embed step. No code changed, $0.** PR #16 merged only the first 1.9 commit. The measurement commit (`a844718`: stage doc 08's measurement, STATUS, the ROADMAP memory row) is cherry-picked here. The human's manual run `radiant-inchworm` **Completed** in 313 s. The worker's cgroup peaked at **290 MiB**, and idles at **145 MiB**: 82 MiB worker + 56 MiB reclaimable page cache. The schedule is still off. **Plan for 1.9b's embed step** (ROADMAP 1.9b): run collect and embed each in a child process (embed alone isn't enough: the flow keeps collect's ~210 MB), expected peak ~520 MB. Raise the caps to `MemoryHigh=550M` / `MemoryMax=700M`, because ~520 MB would be throttled at 450M and a backlog embed could reach ~616 MB. Then measure, and keep 600M if the peak is well under 550 MB.
 
 **Human must:** review and merge `task/1.9b-memory-plan` (docs only). Turn the 1.9 schedule on when ready. The cap change needs `sudo` and comes with 1.9b, not now.
@@ -1590,6 +1604,60 @@ All checks passed!
   file 58679296
   ```
   ✅ Peak 290 MiB under the 600M cap; idle 145 MiB = 82 MiB worker + 56 MiB page cache. The embed step's memory plan is in ROADMAP 1.9b.
+
+## 1.9b — Chat in Telegram (RAG), owner-only
+- **Branch:** `task/1.9b-chat`, from `origin/main` at 091e9cc (1.9 and the memory plan merged).
+- **State:** ✅ agent part done; ✅ first real question (run by the human); ✅ caps installed. 🧑 merge, then pull the runtime and restart the bot.
+- **Done:**
+  - `natalia/chat.py`, the question's path:
+    - **Language:** Khmer if the question is mostly Khmer script, otherwise English.
+    - **Cap:** 20 a day per chat, by Asia/Phnom_Penh day. A question counts before anything runs.
+    - **Search** in a child process (`python -m natalia.chat retrieve`, question on stdin): the 8 nearest articles of 30 days, distance ≤ 0.25.
+    - **Answer:** one Haiku request with structured JSON (covered, answer, source_ids). Sources come from the database, and made-up ids are dropped.
+    - **Reply:** HTML with numbered source links.
+    - Failures (search, LLM, non-JSON reply) become a short "sorry" in the question's language.
+    - CLI: `ask [--dry-run]`.
+  - `migrations/0003_chat_questions.sql`: one row per question, **without its text** (language, articles retrieved, covered, source ids, model, requests, tokens, error). Applied to the database:
+    ```console
+    $ uv run python -m natalia.db migrate
+    applied migrations: 0001_initial_schema, 0002_topic_rules_and_coverage, 0003_chat_questions
+    pending migrations: none
+    ```
+  - `natalia/bot.py`:
+    - The owner's text messages go to chat, one at a time (a lock: one search child at most).
+    - "Typing…" shows while the answer is prepared; long answers are split.
+    - A photo or voice message gets "I can only read text messages for now."; an unknown `/command` gets the help text. Strangers are refused as before.
+    - The log line has language, counts and tokens, never the question.
+    - `/start` mentions chat.
+  - `natalia/daily.py`: collect, then embed, run as child processes (`run_child`), their output streamed into the flow log, with timeouts of 40 and 15 minutes. If embed fails, the owner is alerted, the digest is built anyway, and the run ends Failed.
+  - `natalia/embeddings.py`: `BATCH = 8` (was 16).
+  - `natalia/llm.py`: the docstring notes chat sends the owner's own questions.
+  - Unit files: worker `MemoryHigh` 450M → **600M**, `MemoryMax` 600M → **700M**; bot 160M/200M → **450M/550M**. `systemd-analyze verify` is clean for both.
+  - Docs: new `09-chat.md`; `08-daily-flow.md` (embed step, step 8 on memory); `05-embeddings.md` (batch 8); `07-bot.md`; `ROADMAP.md` (memory budget, 1.9b's doc); `decisions.md` ("Chat"); `STYLE.md`; README.
+- **Measured (free, local):**
+  - **Embedding the backlog** (`embeddings embed`, 817 articles without a vector): 34 s, **438 MB peak** at batch 16. Every article now has a vector.
+  - **Batch size**, 400 real articles: batch 16 peaks at 402 MB (11.7 s), batch 8 at **354 MB (11.0 s)**, batch 4 at 334 MB (12.2 s). Batch 8 against batch 16: cosine ≥ 0.995, mean 0.997.
+  - **So the worker at the embed step:** 82 + ~95 + ~390 ≈ **570 MB**. That's above the plan's 550M, so the caps are 600M/700M instead of the plan's 550M/700M.
+  - **Search child** (`chat retrieve`): **332 MiB peak, 1.15 s**. With the bot, about 410 MB at peak, over the old 200M cap.
+  - **Similarity scores** (`embeddings search`): related questions score 0.82–0.89, unrelated ones 0.79–0.81. So the cut-off only drops junk, and Haiku judges coverage. Khmer → English is weak ("stock market today" in Khmer found trading and memecoins).
+  - **Dry run** of "Bitcoin price this week": 8 Bitcoin articles retrieved, prompt 9,425 characters (~4,000 Claude tokens), about $0.001 a question.
+- **Tests:** `uv run pytest -q` → `197 passed in 23.29s` ✅, ruff clean ✅.
+  - `tests/test_chat.py` (19): retrieval and the LLM are fakes, database tests roll back.
+  - `tests/test_bot.py`: 4 new chat tests.
+  - `tests/test_daily.py`: 5 new tests (the embed step and the child processes).
+  - Found while writing them: before `embed_step` was faked, `test_daily.py` and `test_daily_flow.py` ran the real `natalia.embeddings embed` child. It ran locally, nothing was missing so nothing was written, and nothing was sent anywhere. The fakes now cover it.
+- **First real question** (run by the human, 2026-10-17):
+  ```console
+  $ uv run python -m natalia.chat ask "Bitcoin price this week"
+  retrieved 8 articles: [2386, 4337, 304, 362, 263, 658, 289, 2326]
+  This week Bitcoin has mostly traded between about $80,000 and $84,000. …
+  covered=True, 5 sources, 1 requests, 4244 in + 185 out tokens, 4.7 s
+  ```
+  ✅ 5 sources, all stored articles; the `chat_questions` row has the tokens and no text. **Cost:** 4,244 × $0.10/M + 185 × $0.50/M = **$0.0005**.
+- **Caps** (human, `sudo`): ✅ `systemctl show` gives bot `MemoryHigh=471859200 MemoryMax=576716800`, worker `MemoryHigh=629145600 MemoryMax=734003200`.
+- **Bot:** ❌ not chatting yet. Three text messages got the 1.8 reply "questions come in a later version". **Cause:** `git -C ~/projects/natalia-runtime pull --ff-only origin main` ran before the merge, so the runtime is at `091e9cc` (main without 1.9b) and the restart started the old bot. **Fix:** merge, pull the runtime again, `sudo systemctl restart natalia-bot`. Stage doc 09, step 5, now says to pull only after the merge.
+- **Next:** 🧑 merge; pull the runtime; restart the bot; ask it the three test questions.
+- **Open:** keyword search (if names or tickers miss); the privacy notice in `/start` for family and friends (2.1); where questions are kept for conversation memory (2.4).
 
 ## 1.4b — Stable ties and a request guard
 - **Branch:** `task/1.4b-stable-ties`, from `origin/main` at ced0461 (1.7 fully merged, checked: 4fdddbd is in main).
