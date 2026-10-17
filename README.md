@@ -64,6 +64,7 @@ Design rules:
 | [docs/04-topics.md](docs/04-topics.md) ✅ | Topic rules and the day's top 5 stories per topic |
 | [docs/05-embeddings.md](docs/05-embeddings.md) 🧑 | The local embedding model: memory, speed and quality measured |
 | [docs/06-digest.md](docs/06-digest.md) 🧑 | The LLM wrapper, summaries and the daily digest ([first digest](docs/digests/2026-10-16.md)) |
+| [docs/07-bot.md](docs/07-bot.md) 🧑 | Natalia's Telegram bot: sending the digest, owner-only commands, the service |
 | [docs/PLAN.md](docs/PLAN.md) | What Natalia should do (the source of truth for features) |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | The task list for humans and agents, and the decisions made |
 | [docs/STATUS.md](docs/STATUS.md) | Live progress: every step of every task, with real output |

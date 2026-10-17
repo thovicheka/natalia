@@ -1681,3 +1681,56 @@ Note: the stored digest row for 2026-10-16 counts 1 request (the 403); the 404 c
 </details>
 
 **Privacy check:** prompts hold news only (id, headline, source, date, article text or feed excerpt); no links, no reader details, no secrets. The key is read from `.env` inside the process and never printed (`ping` prints only the model, reply and token counts).
+
+## 1.8 — Natalia's Telegram bot
+- **Branch:** `task/1.8-bot` (stacked on `task/1.7-digest`)
+- **State:** agent part done, committed and pushed; 🧑 steps waiting (no bot was created, no message sent)
+- **Done:** `natalia/bot.py` (python-telegram-bot 22.8): `send` (a stored digest → Telegram HTML, source before summary, packed into ≤ 4,096-character messages, ~1 s apart, previews off; `--dry-run`), `run` (long polling, owner-only: `/start`, `/help`, `/digest [date]`; strangers get one refusal and nothing else). Token never printed; `httpx` request logs (which contain the token) kept at WARNING. `deploy/natalia-bot.service` (runtime worktree, `Restart=on-failure`, `MemoryMax=200M`, `MemoryHigh=160M`, `NoNewPrivileges`, `PrivateTmp`, `ProtectSystem=full`, no secrets). 132 tests pass (fake bot and updates). Bot process ~80 MB. Stage doc `docs/07-bot.md`; README updated.
+- **Next:** none in this queue (1.9 not requested).
+- **Human must** (exact commands in `docs/07-bot.md`):
+  1. @BotFather → `/newbot` → put `TELEGRAM_BOT_TOKEN` in `.env` (your own terminal).
+  2. Send the bot `/start`, read your chat ID with `getUpdates` (the command in step 2 keeps the token in your shell), put `TELEGRAM_OWNER_CHAT_ID` in `.env`.
+  3. `uv run python -m natalia.bot send --date 2026-10-16` → expect `sent the 2026-10-16 digest: 6 messages` (more once summaries exist).
+  4. Optional now, needed for 2.1: the runtime worktree (`git worktree add ~/projects/natalia-runtime main`, `uv sync --no-dev`, copy `.env`) and the service: `sudo cp …/natalia-bot.service /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl enable --now natalia-bot`. Do it after merging to `main`, since the service runs `main`.
+
+<details><summary>Steps and output from this build</summary>
+
+**1. Branch** from `task/1.7-digest`; `uv add python-telegram-bot` → `python-telegram-bot==22.8`. **Result:** ✅
+
+**2. Code**, named `natalia/bot.py` (not `telegram.py`, which would shadow the library's name). **Result:** ✅
+
+**3. Dry run** on the stored 2026-10-16 digest:
+```console
+$ uv run python -m natalia.bot send --dry-run --date 2026-10-16
+--- message 1/6 (3850 characters)
+--- message 2/6 (3834 characters)
+--- message 3/6 (3623 characters)
+--- message 4/6 (4001 characters)
+--- message 5/6 (3770 characters)
+--- message 6/6 (1940 characters)
+```
+**Result:** ✅ (summaries pending, see 1.7; with them, about 10–11 messages)
+
+**4. Tests** with a fake bot, stand-in updates and made-up digests; one lint fix (`%` formatting in a test).
+```console
+$ uv run pytest -q
+132 passed in 2.74s
+```
+**Result:** ✅
+
+**5. Service file and memory** (no network, fake token):
+```console
+$ systemd-analyze verify deploy/natalia-bot.service
+natalia-bot.service: Command /home/thovicheka/projects/natalia-runtime/.venv/bin/python is not executable: No such file or directory
+$ uv run python botmem.py
+python: (46.1, 46.1)
+imports: (52.6, 52.6)
+app built: (73.4, 73.4)
+digest loaded and rendered (6 messages): (79.3, 79.3)
+```
+**Result:** ✅ unit valid apart from the runtime worktree that doesn't exist yet (🧑 step 4); ~80 MB.
+</details>
+
+**Noticed, not done (out of scope):**
+- The 07:00 push itself is task 1.9 (Prefect flow `natalia-daily`: collect → tag → embed → digest → `bot send`). Everything it needs now exists as functions.
+- A morning digest of ~10 messages is long for a chat. Options for later (2.2 or the human's call): send only the top stories plus one line per topic and let `/economics` etc. show the rest.
