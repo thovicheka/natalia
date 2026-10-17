@@ -1,7 +1,10 @@
 """Tests for the LLM wrapper (task 1.7), with a fake provider: no network, no key, no quota."""
 
 import json
+from types import SimpleNamespace as NS
 
+import anthropic
+import httpx2
 import pytest
 
 from natalia import llm
@@ -87,3 +90,138 @@ def test_missing_key_is_a_clear_error(monkeypatch, tmp_path):
     monkeypatch.setattr(llm, "ROOT", tmp_path)  # no .env there
     with pytest.raises(llm.LLMError, match="GEMINI_API_KEY is not set"):
         llm.GeminiClient()
+
+
+def test_missing_anthropic_key_is_a_clear_error(monkeypatch, tmp_path):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setattr(llm, "ROOT", tmp_path)
+    with pytest.raises(llm.LLMError, match="ANTHROPIC_API_KEY is not set"):
+        llm.AnthropicClient()
+
+
+@pytest.mark.parametrize(
+    "value, provider, model",
+    [
+        (None, "anthropic", "claude-haiku-5-5"),
+        ("", "anthropic", "claude-haiku-5-5"),
+        ("Gemini", "gemini", "gemini-3.8-flash"),
+    ],
+)
+def test_provider_is_picked_by_llm_provider(monkeypatch, tmp_path, value, provider, model):
+    monkeypatch.setattr(llm, "ROOT", tmp_path)
+    if value is None:
+        monkeypatch.delenv("LLM_PROVIDER", raising=False)
+    else:
+        monkeypatch.setenv("LLM_PROVIDER", value)
+    assert (llm.provider(), llm.default_model()) == (provider, model)
+
+
+def test_unknown_provider_is_a_clear_error(monkeypatch, tmp_path):
+    monkeypatch.setattr(llm, "ROOT", tmp_path)
+    monkeypatch.setenv("LLM_PROVIDER", "openai")
+    with pytest.raises(llm.LLMError, match="LLM_PROVIDER must be one of"):
+        llm.provider()
+
+
+def test_generate_uses_the_providers_model_by_default(monkeypatch, tmp_path):
+    monkeypatch.setattr(llm, "ROOT", tmp_path)
+    monkeypatch.delenv("LLM_PROVIDER", raising=False)
+    fake = FakeProvider(ok())
+    llm.use_client(fake)
+    llm.generate("x")
+    assert fake.calls[0][1]["model"] == "claude-haiku-5-5"
+
+
+def test_strict_schema_closes_every_object():
+    schema = {
+        "type": "object",
+        "properties": {"items": {"type": "array", "items": {"type": "object", "properties": {}}}},
+    }
+    out = llm.strict_schema(schema)
+    assert out["additionalProperties"] is False
+    assert out["properties"]["items"]["items"]["additionalProperties"] is False
+    assert "additionalProperties" not in schema  # the caller's schema is not changed
+
+
+# --- the Anthropic backend, against a fake SDK client (no network, no key) -----------------
+
+
+class FakeMessages:
+    def __init__(self, reply=None, error=None):
+        self.reply, self.error, self.kwargs = reply, error, None
+
+    def create(self, **kwargs):
+        self.kwargs = kwargs
+        if self.error:
+            raise self.error
+        return self.reply
+
+
+def anthropic_backend(messages):
+    backend = llm.AnthropicClient.__new__(llm.AnthropicClient)  # skip __init__: no key needed
+    backend._anthropic = anthropic
+    backend._client = NS(messages=messages)
+    return backend
+
+
+def claude_reply(text, stop_reason="end_turn", thinking=7):
+    return NS(
+        content=[NS(type="thinking", thinking=""), NS(type="text", text=text)],
+        model="claude-haiku-5-5",
+        stop_reason=stop_reason,
+        stop_details=NS(category="general_harms") if stop_reason == "refusal" else None,
+        usage=NS(
+            input_tokens=40,
+            output_tokens=12 + thinking,
+            output_tokens_details=NS(thinking_tokens=thinking),
+        ),
+    )
+
+
+def test_anthropic_request_shape_and_result():
+    msgs = FakeMessages(claude_reply('{"items": []}'))
+    r = anthropic_backend(msgs).generate(
+        "news",
+        model="claude-haiku-5-5",
+        system="Be brief",
+        json_schema={"type": "object", "properties": {}},
+        temperature=0.3,
+        max_output_tokens=100,
+    )
+    kw = msgs.kwargs
+    assert kw["model"] == "claude-haiku-5-5" and kw["max_tokens"] == 100
+    assert kw["system"] == "Be brief"
+    assert kw["messages"] == [{"role": "user", "content": "news"}]
+    assert "temperature" not in kw  # Haiku 5.5 answers 400 to non-default sampling values
+    assert kw["output_config"]["effort"] == "low"
+    fmt = kw["output_config"]["format"]
+    assert fmt["type"] == "json_schema" and fmt["schema"]["additionalProperties"] is False
+    assert r.text == '{"items": []}'
+    assert (r.input_tokens, r.output_tokens, r.thinking_tokens) == (40, 12, 7)
+
+
+def test_anthropic_without_schema_or_system_sends_neither():
+    msgs = FakeMessages(claude_reply("OK"))
+    anthropic_backend(msgs).generate(
+        "x", model="m", system=None, json_schema=None, temperature=0.3, max_output_tokens=64
+    )
+    assert "system" not in msgs.kwargs and "format" not in msgs.kwargs["output_config"]
+
+
+def test_anthropic_errors_become_provider_errors():
+    req = httpx2.Request("POST", "https://api.anthropic.com/v1/messages")
+    resp = httpx2.Response(429, headers={"retry-after": "7"}, request=req)
+    err = anthropic.RateLimitError("rate limited", response=resp, body=None)
+    with pytest.raises(llm.ProviderError) as e:
+        anthropic_backend(FakeMessages(error=err)).generate(
+            "x", model="m", system=None, json_schema=None, temperature=0.3, max_output_tokens=64
+        )
+    assert e.value.code == 429 and llm._retry_wait(e.value.message) == 8.0
+
+
+def test_anthropic_refusal_is_an_error():
+    msgs = FakeMessages(claude_reply("", stop_reason="refusal"))
+    with pytest.raises(llm.ProviderError, match="refused"):
+        anthropic_backend(msgs).generate(
+            "x", model="m", system=None, json_schema=None, temperature=0.3, max_output_tokens=64
+        )

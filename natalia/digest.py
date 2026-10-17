@@ -1,7 +1,7 @@
 """The daily digest: top stories + an AI summary and "why it matters" for each (task 1.7).
 
     uv run python -m natalia.digest build --dry-run         # show the requests, call nothing
-    uv run python -m natalia.digest build                   # today's digest (calls Gemini)
+    uv run python -m natalia.digest build                   # today's digest (calls the LLM)
     uv run python -m natalia.digest build --topics economics --max-requests 1
     uv run python -m natalia.digest show --date 2026-10-16  # print a stored digest (Markdown)
 
@@ -216,13 +216,15 @@ def build(
     gap_s: float = REQUEST_GAP_S,
     dry_run: bool = False,
     no_llm: bool = False,
-    model: str = llm.DEFAULT_MODEL,
+    model: str | None = None,
     log=print,
     sleep=time.sleep,
 ) -> BuildReport:
     """Pick the day's stories, summarize those without a summary (one request per topic), store
     everything. A failed topic is logged and skipped; its stories are listed in `missing`.
-    `no_llm`: store the picks only (a later build adds the summaries)."""
+    `no_llm`: store the picks only (a later build adds the summaries). `model`: default, the
+    LLM provider's pinned model (natalia.llm, LLM_PROVIDER)."""
+    model = model or llm.default_model()
     end = day_window(day)[1]
     picks, _, _ = top_stories(conn, end, per_topic=per_topic)
     if topics:
@@ -396,7 +398,7 @@ def main(argv: list[str] | None = None) -> int:
     b.add_argument("--max-requests", type=int, default=MAX_REQUESTS)
     b.add_argument("--dry-run", action="store_true", help="show the requests, send nothing")
     b.add_argument("--no-llm", action="store_true", help="store the picks without summaries")
-    b.add_argument("--model", default=llm.DEFAULT_MODEL, help="LLM model (default: %(default)s)")
+    b.add_argument("--model", help="LLM model (default: the LLM_PROVIDER's pinned model)")
     s = sub.add_parser("show", help="print a stored digest as Markdown")
     s.add_argument("--date", type=date.fromisoformat)
     s.add_argument("--save", action="store_true", help=f"also write it to {DIGEST_DIR}/")

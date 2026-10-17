@@ -1,29 +1,31 @@
 # Stage 6 — Summaries and the daily digest
 
-**Tasks:** 1.7 · **Status:** 🧑 blocked: the Gemini project answers `403 PERMISSION_DENIED` (step 4). Code, tests and the day's picks are done; summaries wait for the human to restore API access.
+**Tasks:** 1.7 · **Status:** ⏳ switched to Claude Haiku 5.5 on 2026-10-17, because the Gemini project answers `403 PERMISSION_DENIED`. Code, tests and the day's picks are done. The first real call (one `ping`, step 4) waits for the human's approval, and the full digest (step 5) waits for a second one.
 
-**What you'll have working by the end:** `natalia/llm.py`, the one wrapper every LLM call goes through (Gemini Flash, free tier, `google-genai`), and a digest builder that takes the day's top 5 stories per topic ([Stage 4](04-topics.md)), asks the LLM for a short summary and "why it matters" for each (one request per topic, 9 per day), stores them, and renders the digest: headline + link + the source's own text first, then the AI summary.
+**What you'll have working by the end:** `natalia/llm.py`, the one wrapper every LLM call goes through (Claude Haiku 5.5 through the `anthropic` SDK by default; Gemini Flash through `google-genai` with `LLM_PROVIDER=gemini`), and a digest builder that takes the day's top 5 stories per topic ([Stage 4](04-topics.md)), asks the LLM for a short summary and "why it matters" for each (one request per topic, 9 per day), stores them, and renders the digest: headline + link + the source's own text first, then the AI summary.
 
 | Placeholder | In this build |
 |---|---|
 | `<date>` | `2026-10-16` |
-| `<model>` | `gemini-3.8-flash` |
+| `<model>` | `claude-haiku-5-5` (`gemini-3.8-flash` with `LLM_PROVIDER=gemini`) |
 
 ## Prerequisites
-- [Stage 0](00-project-setup.md#7--gemini-api-key-free-tier-in-your-browser): `GEMINI_API_KEY` in `.env`, from a project with **no billing** (free tier).
+- `ANTHROPIC_API_KEY` in `.env` *(🧑)*, from an Anthropic Console account with **prepaid credits and auto-reload off**, so spending can't go past the balance. `LLM_PROVIDER` can stay unset (default `anthropic`).
+- Only for `LLM_PROVIDER=gemini`: [Stage 0](00-project-setup.md#7--gemini-api-key-free-tier-in-your-browser): `GEMINI_API_KEY` in `.env`, from a project with **no billing** (free tier).
 - [Stage 4](04-topics.md): tagged articles for the day.
 
 ## How it works
-- **`natalia/llm.py`** is the only module that imports `google-genai` (a test checks it). `generate(prompt, system=…, json_schema=…)` returns the text and token counts; 429 and 5xx errors are retried up to 3 times after the wait the error asks for (capped at 65 s); `set_max_calls(n)` caps a process's requests, retries included; every request (failed ones too) is one JSON line in `logs/llm-usage.jsonl` (git-ignored). Thinking is turned down (`thinking_level="low"` on Gemini 3; budget 0 on Gemini 2).
+- **`natalia/llm.py`** is the only module that imports an LLM SDK (`anthropic` or `google-genai`; a test checks it). `LLM_PROVIDER` (environment or `.env`) picks the backend, `anthropic` by default, and each provider has a pinned model (`MODELS`). `generate(prompt, system=…, json_schema=…)` returns the text and token counts; 429 and 5xx errors are retried up to 3 times after the wait the error asks for (capped at 65 s); `set_max_calls(n)` caps a process's requests, retries included; every request (failed ones too) is one JSON line in `logs/llm-usage.jsonl` (git-ignored). Thinking is turned down: `effort: "low"` on Claude, `thinking_level="low"` on Gemini 3, budget 0 on Gemini 2. Claude gets no `temperature` (Haiku 5.5 answers 400 to non-default sampling values), its JSON comes from structured outputs (`output_config.format`, with `additionalProperties: false` added to every object by `strict_schema()`), a refusal is an error, and the SDK's own retries are off, so every request counts against the cap. Claude's thinking tokens are logged apart from its output tokens.
 - **`natalia/digest.py build`**: for each topic, one request with the stories that have no summary yet. The prompt holds news only: id, headline, source, date and up to 2,500 characters of the article (or the feed's excerpt for paywalled sources); no links, nothing about the reader. The reply is JSON (`{"items": [{id, summary, why_it_matters}]}`), checked against the ids sent. Summaries go into `summaries` (one per article and language), so a re-run reuses them and sends nothing; the picks go into `digests` / `digest_items`, with request and token counts. Requests are spaced 13 s apart (≤ 5 a minute).
 - **`show`** renders a stored digest as Markdown (`--save` writes `docs/digests/<date>.md`). The bot (task 1.8) reads the same stored digest.
-- Why one request per topic, and the model: [decisions](decisions.md#llm-gemini-flash-on-the-free-tier-over-the-anthropic-api).
+- Why Claude Haiku 5.5, its cost, and why one request per topic: [decisions](decisions.md#llm-claude-haiku-55-on-the-anthropic-api-over-gemini-which-was-blocked), [Gemini (superseded)](decisions.md#llm-gemini-flash-on-the-free-tier-over-the-anthropic-api).
 
 ## Steps
 
-### 1. Install the SDK
+### 1. Install the SDKs
 ```bash
-uv add google-genai
+uv add anthropic       # Claude, the default provider
+uv add google-genai    # Gemini, only for LLM_PROVIDER=gemini
 ```
 <details><summary>Example from this build</summary>
 
@@ -31,12 +33,18 @@ uv add google-genai
 $ uv add google-genai
  + google-auth==2.62.0
  + google-genai==2.31.0
+$ uv add anthropic                                   # 2026-10-17
+ + anthropic==1.15.0
+ + docstring-parser==0.18.0
+ + jiter==0.17.0
 ```
 **Result:** ✅
 </details>
 
-### 2. Check the free tier's limits *(🧑, in your browser)*
-Open AI Studio → *Usage & limits* (or the "View your active rate limits" link on [ai.google.dev/gemini-api/docs/rate-limits](https://ai.google.dev/gemini-api/docs/rate-limits)) and note requests per minute and per day for `<model>`. Limits are per project, not per key.
+### 2. Check the limits *(🧑, in your browser)*
+**Claude:** in the Anthropic Console, check that *auto-reload* is off under Billing, and note the credit balance and the rate limits for `claude-haiku-5-5` (Settings → Limits). Nine requests a day are far below any tier's limits.
+
+**Gemini (only with `LLM_PROVIDER=gemini`):** open AI Studio → *Usage & limits* (or the "View your active rate limits" link on [ai.google.dev/gemini-api/docs/rate-limits](https://ai.google.dev/gemini-api/docs/rate-limits)) and note requests per minute and per day for `<model>`. Limits are per project, not per key.
 
 *What it does:* the digest uses 9 requests a day and spaces them 13 s apart; chat (task 2.3) needs the rest of the daily quota.
 
@@ -68,13 +76,36 @@ $ uv run python -m natalia.digest build --dry-run
 digest 2026-10-16: 45 stories, 0 summaries reused, 0 new, 0 missing; 9 requests, 0 input + 0 output tokens, 1 s
 ```
 **Result:** ✅ 9 requests, ~23,500 input tokens (plus ~250 for the instructions each), and an expected ~4,000 output tokens (45 × ~90).
+
+The 2026-10-17 run, after the switch to Claude (the dry run makes no request with either provider):
+```console
+$ uv run python -m natalia.digest build --dry-run
+[dry run] general: 4 stories, ~2634 input tokens
+[dry run] economics: 5 stories, ~3331 input tokens
+[dry run] world-politics: 5 stories, ~2937 input tokens
+[dry run] technology: 5 stories, ~2915 input tokens
+[dry run] science: 5 stories, ~1934 input tokens
+[dry run] sport: 5 stories, ~3309 input tokens
+[dry run] crypto: 5 stories, ~2677 input tokens
+[dry run] markets: 5 stories, ~2759 input tokens
+[dry run] cambodia: 5 stories, ~2847 input tokens
+
+digest 2026-10-17: 44 stories, 0 summaries reused, 0 new, 0 missing; 9 requests, 0 input + 0 output tokens, 0 s
+```
+**Result:** ✅ ~25,300 input tokens (characters ÷ 4; Claude's tokenizer may count more). At Haiku 5.5's $0.10/M input and $0.50/M output, with ~5–8k output tokens including thinking, a full digest costs about **$0.006** (~$0.15–0.25 a month).
 </details>
 
 ### 4. Check access with one tiny request
 ```bash
 uv run python -m natalia.llm ping
 ```
-*What it does:* sends "Reply with the single word OK." (~10 tokens). Listing models (stage 0's key test) only proves the key is valid; this proves the project may generate.
+*What it does:* sends "Reply with the single word OK." to the provider's pinned model (about 15 input tokens, at most 64 output tokens because thinking counts toward the cap), and prints the reply and token counts, never the key. With Claude it costs well under $0.0001. It proves that the key, the account's access and the model all work.
+
+> **If you see** `ANTHROPIC_API_KEY is not set`, **it means** the key isn't in `.env` (or the environment). Add it as `ANTHROPIC_API_KEY=…` (🧑).
+
+> **If you see** `401` or `authentication_error`, **it means** the key is wrong or revoked. An error about the **credit balance** means the prepaid credits ran out; with auto-reload off, nothing more is spent until the human tops up.
+
+The two notes below are from the Gemini attempt (`LLM_PROVIDER=gemini`).
 
 > **If you see** `404 NOT_FOUND … models/gemini-2.5-flash is no longer available to new users`, **it means** the model was closed to new keys. Use a current one: `natalia/llm.py`'s `DEFAULT_MODEL` (here `gemini-3.8-flash`, the newest numbered Flash model the key listed), or `--model` on `ping` and `digest build`.
 
@@ -138,13 +169,15 @@ News from the 24 hours before 07:00 Asia/Phnom_Penh. Summaries pending: none gen
 ```bash
 uv run pytest -q tests/test_llm.py tests/test_digest.py
 ```
-*What it does:* the wrapper with a fake provider (token counts and the usage log, a 429 retried after the wait it asks for, retries capped, 400 not retried, the call cap counting retries, a missing key); the digest against the real database with a fake LLM (one request per topic, summaries stored and reused on the next build, a missing answer reported and shown as pending, `--dry-run` and `--no-llm` sending nothing, the source shown before the summary, prompts holding news only, no links).
+*What it does:* the wrapper with a fake provider (token counts and the usage log, a 429 retried after the wait it asks for, retries capped, 400 not retried, the call cap counting retries, a missing key; `LLM_PROVIDER` picking the backend and its model; the Claude backend against a fake SDK client: request shape with no `temperature`, `effort: low`, a strict JSON schema, thinking tokens split out, a 429 keeping its `retry-after`, a refusal raised as an error); the digest against the real database with a fake LLM (one request per topic, summaries stored and reused on the next build, a missing answer reported and shown as pending, `--dry-run` and `--no-llm` sending nothing, the source shown before the summary, prompts holding news only, no links).
 
 <details><summary>Example from this build</summary>
 
 ```console
 $ uv run pytest -q
 119 passed in 2.32s
+$ uv run pytest -q                                   # 2026-10-17, with the Claude backend
+130 passed in 3.28s
 ```
 **Result:** ✅
 </details>
@@ -154,4 +187,4 @@ $ uv run pytest -q
 uv run python -m natalia.llm ping
 uv run python -m natalia.digest show --date <date> | head -3
 ```
-Expected: `gemini-3.8-flash: 'OK' (… in / … out tokens)`, and a header line that starts `Summaries by gemini-3.8-flash for 45 of 45 stories (9 requests, …`.
+Expected: `claude-haiku-5-5: 'OK' (… in / … out / … thinking tokens)`, and a header line that starts `Summaries by claude-haiku-5-5 for 44 of 44 stories (9 requests, …` (the story count is the day's).

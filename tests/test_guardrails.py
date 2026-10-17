@@ -50,10 +50,11 @@ def test_env_is_git_ignored():
     assert ".venv" in lines
 
 
-def test_only_llm_wrapper_imports_genai():
+def test_only_llm_wrapper_imports_an_llm_sdk():
+    sdk = ("google.genai", "from google import genai", "import anthropic", "from anthropic")
     offenders = []
     for path in (ROOT / "natalia").rglob("*.py"):
         text = path.read_text()
-        if path.name != "llm.py" and ("google.genai" in text or "from google import genai" in text):
+        if path.name != "llm.py" and any(s in text for s in sdk):
             offenders.append(str(path.relative_to(ROOT)))
-    assert not offenders, f"only natalia/llm.py may import google-genai: {offenders}"
+    assert not offenders, f"only natalia/llm.py may import an LLM SDK: {offenders}"

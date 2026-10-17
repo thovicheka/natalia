@@ -2,7 +2,19 @@
 
 Why each tool and rule was picked, and what it was picked over. The short version of each decision is in [`ROADMAP.md`](ROADMAP.md) ("Decisions already made"); agents don't swap any of them without asking the human. Updated as the build goes.
 
+## LLM: Claude Haiku 5.5 on the Anthropic API (over Gemini, which was blocked)
+- **Decided 2026-10-17 by the human (task 1.7)**, replacing the Gemini decision below.
+- **Why:** Gemini was blocked for the whole account. Every `generateContent` request answered `403 PERMISSION_DENIED … Your project has been denied access` whatever the model (2026-10-16, 3 requests, 0 tokens; see [Stage 6](06-digest.md)), so the digest could not be built. Claude Haiku 5.5 is Anthropic's small, fast model and costs very little at this volume.
+- **Model:** `claude-haiku-5-5`, pinned in `natalia/llm.py` (`MODELS`). Official `anthropic` SDK; key `ANTHROPIC_API_KEY` in `.env`.
+- **Cost:** $0.10 per million input tokens, $0.50 per million output tokens (prompts up to 100k tokens; the digest's are ~3k). The human estimated **~$0.15/month** for the digest. The 2026-10-17 dry run gives 9 requests and ~27k input tokens a day (counted as characters ÷ 4; Claude's tokenizer may count more), plus ~5–8k output tokens. That works out to about $0.15–0.25 a month. Questions from the bot (task 2.3) come on top.
+- **Spend limit:** prepaid credits with **auto-reload off**, so the most it can ever spend is the credit balance. Every real call still needs the human's approval while building (CLAUDE.md rule 4). `generate()` caps the requests per process (`max_calls`, retries included), and the digest caps them at 12 per build.
+- **Request settings:** `output_config.effort = "low"`, because summaries need little thinking and thinking is billed as output. No `temperature`, because Haiku 5.5 answers 400 to non-default sampling values. JSON comes from structured outputs (`output_config.format`), and `strict_schema()` adds the `additionalProperties: false` this needs. The SDK's own retries are off, so `generate()` does the retrying and every request counts against the cap.
+- **Gemini kept as an option:** `LLM_PROVIDER=gemini` in `.env` switches back with no code change (same `generate()` interface, same usage log).
+- **Privacy:** CLAUDE.md rule 10 still holds: news only, never private data. The Gemini free-tier notice planned for the bot (2.1) and website (5.3) will need rewording for Anthropic (🧑 to confirm the account's data-use settings in the Console).
+- **Alternatives considered:** Gemini on a new Google account or project (it might be blocked again, and it isn't an agent step anyway); the paid Gemini tier (needs billing on a project that is already denied); Claude Sonnet or Opus (better writing, but 20–40× the price per token for 2–3 sentence summaries).
+
 ## LLM: Gemini Flash on the free tier (over the Anthropic API)
+- **Superseded on 2026-10-17** by the Claude Haiku 5.5 decision above. The project was denied access (403). Kept for the record, and because `LLM_PROVIDER=gemini` still works.
 - **Why:** it costs nothing. Natalia is a personal project; the daily digest and a few questions a day fit the free tier's quota, so there's no bill and no spend limit to watch. Official `google-genai` SDK; key `GEMINI_API_KEY` from AI Studio, with no billing attached to its Google Cloud project.
 - **Changed on 2026-10-15**, before task 0.1 was merged: the first draft used the Anthropic API.
 - **Alternatives considered:**
