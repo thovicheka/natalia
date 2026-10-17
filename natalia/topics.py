@@ -2,7 +2,7 @@
 
     uv run python -m natalia.topics tag                 # rule topics + language for recent articles
     uv run python -m natalia.topics tag --all           # ... for every stored article
-    uv run python -m natalia.topics top                 # today's top 5 per topic (07:00 cut-off)
+    uv run python -m natalia.topics top                 # today's top 5 per topic (05:00 cut-off)
     uv run python -m natalia.topics top --now -v        # the 24 h before now, with score reasons
 
 Tagging: every article keeps its feed's topic; keyword rules (RULES) add more, e.g. "cambodia" for
@@ -10,7 +10,7 @@ anything that names Cambodia, Phnom Penh, Hun Manet or កម្ពុជា. Th
 kept in `rule_topics`, so changed rules can be re-run cleanly. The same pass sets `language` from
 the headline's script (some "English" feeds carry Khmer items).
 
-Top stories: the articles of one day (the 24 h before 07:00 Asia/Phnom_Penh) are grouped into
+Top stories: the articles of one day (the 24 h before 05:00 Asia/Phnom_Penh) are grouped into
 stories (the same news from several sites, by headline similarity), each story is scored, and the
 best 5 per topic are kept. The score prefers stories that several sites cover, recent ones, and
 ones with full text; it marks down items that are not news (deal posts, puzzle hints, analyst
@@ -37,7 +37,7 @@ from natalia.collect import GOOGLE_NEWS_HOST, site_of
 from natalia.feeds import TOPICS
 
 LOCAL_TZ = ZoneInfo("Asia/Phnom_Penh")
-DIGEST_TIME = time(7, 0)  # the digest covers the 24 h before this, local time
+DIGEST_TIME = time(5, 0)  # a digest covers the 24 h before this, local time (the daily build)
 WINDOW_HOURS = 24
 PER_TOPIC = 5
 MAX_PER_SITE = 2  # per topic, so one busy feed can't fill a topic
@@ -447,7 +447,7 @@ def score_story(story: Story, topic: str, end: datetime) -> tuple[float, dict[st
 
 
 def day_window(day: date) -> tuple[datetime, datetime]:
-    """The 24 h a day's digest covers: up to 07:00 Asia/Phnom_Penh on that day."""
+    """The 24 h a day's digest covers: up to DIGEST_TIME (05:00) Asia/Phnom_Penh on that day."""
     end = datetime.combine(day, DIGEST_TIME, LOCAL_TZ).astimezone(UTC)
     return end - timedelta(hours=WINDOW_HOURS), end
 
@@ -591,7 +591,7 @@ def main(argv: list[str] | None = None) -> int:
     tag.add_argument("--days", type=float, default=TAG_DAYS)
     top = sub.add_parser("top", help="print the top stories per topic")
     top.add_argument("--date", type=date.fromisoformat, help="digest date (default: today)")
-    top.add_argument("--now", action="store_true", help="the 24 h before now, not before 07:00")
+    top.add_argument("--now", action="store_true", help="the 24 h before now, not before 05:00")
     top.add_argument("-n", type=int, default=PER_TOPIC, help="stories per topic")
     top.add_argument("-v", "--verbose", action="store_true", help="show how each score is made")
     args = parser.parse_args(argv)

@@ -1,0 +1,37 @@
+# Natalia's Prefect worker (task 1.9): runs the natalia-daily flow from work pool "natalia".
+#
+# Install (🧑, sudo), once the runtime worktree exists and has Prefect (see docs/08-daily-flow.md):
+#   sudo cp ~/projects/natalia/deploy/natalia-worker.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now natalia-worker
+#   systemctl status natalia-worker ; journalctl -u natalia-worker -n 50
+#
+# Its own pool and worker, not the lab's: lab flows paused for approval hold the lab worker's
+# slots for up to 24 h, and its 900M cap is shared with lab training. The pool is created by the
+# worker on its first heartbeat if it doesn't exist. Flows run as child processes of the worker,
+# so MemoryMax covers the worker (~80-100 MB) and the flow (~250 MB measured peak, see the doc).
+[Unit]
+Description=Prefect worker for Natalia (work pool "natalia")
+Wants=network-online.target
+After=network-online.target prefect-server.service postgresql.service
+
+[Service]
+Type=simple
+User=thovicheka
+WorkingDirectory=/home/thovicheka/projects/natalia-runtime
+Environment=PREFECT_API_URL=http://127.0.0.1:4200/api
+Environment=PREFECT_UI_URL=http://lab:4200
+Environment=PYTHONUNBUFFERED=1
+# DATABASE_URL, ANTHROPIC_API_KEY and the Telegram settings come from the runtime's .env, read
+# by the flow itself (never put secrets in this file: unit files are world-readable).
+ExecStart=/home/thovicheka/projects/natalia-runtime/.venv/bin/prefect worker start --pool natalia --type process --name natalia-worker --limit 1 --install-policy never
+Restart=always
+RestartSec=10
+MemoryHigh=450M
+MemoryMax=600M
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+
+[Install]
+WantedBy=multi-user.target

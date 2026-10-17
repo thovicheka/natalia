@@ -11,7 +11,7 @@ from natalia import llm
 from natalia.collect import normalize_title
 
 DAY = date(2020, 1, 2)
-END = datetime(2020, 1, 2, 0, 0, tzinfo=UTC)  # 07:00 Asia/Phnom_Penh
+END = datetime(2020, 1, 1, 22, 0, tzinfo=UTC)  # 05:00 Asia/Phnom_Penh on DAY
 
 
 class FakeLLM:

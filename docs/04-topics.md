@@ -17,7 +17,7 @@
 ```
 articles (feed topic) ──► tag: keyword rules add topics, headline script fixes language
                                   │
-day window (24 h before 07:00 Asia/Phnom_Penh)
+day window (24 h before 05:00 Asia/Phnom_Penh; 07:00 until task 1.9)
                                   ▼
 group into stories (same news, different sites) ──► score ──► pick 5 per topic
 ```
@@ -104,7 +104,7 @@ articles checked: 2614, changed: 0
 
 ### 3. Pick the day's top stories
 ```bash
-uv run python -m natalia.topics top                  # today's digest window (until 07:00)
+uv run python -m natalia.topics top                  # today's digest window (until 05:00)
 uv run python -m natalia.topics top --date <date> -v # another day, with each score explained
 uv run python -m natalia.topics top --now            # the 24 h before now
 ```

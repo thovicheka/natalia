@@ -6,7 +6,7 @@ This file is read automatically by Claude Code at the start of every session. Fo
 
 `natalia` is a personal AI news agent. Every day it collects news on nine topics from real sources, stores it, and writes a summary and a "why it matters" next to each article. People reach it through a Telegram bot (for the human, family and friends) and a personal website (for the human only). They can ask it questions and talk to it, in English or Khmer. One engine, several interfaces.
 
-It is a **separate project** from `~/projects/cloud-ai-lab`. It only shares the server and a few of its services (the self-hosted Prefect server and its work pool `lab`). It has its own repo, `.env`, database, Telegram bot, and docs.
+It is a **separate project** from `~/projects/cloud-ai-lab`. It only shares the server and a few of its services (the self-hosted Prefect server; Natalia has its own work pool `natalia` and worker since task 1.9). It has its own repo, `.env`, database, Telegram bot, and docs.
 
 Read these before starting work:
 
@@ -38,7 +38,7 @@ Read these before starting work:
 6. **Don't touch security config**: SSH, firewall (`ufw`), Tailscale, user accounts. Ask instead.
 7. **Nothing destructive without asking**: no `rm -rf` outside the task's own files, no dropping databases or tables with real data, no rewriting git history.
 8. **Stay in scope.** Do the task you were given. If you notice something else worth fixing, list it at the end instead of doing it.
-9. **Leave cloud-ai-lab alone.** Don't edit `~/projects/cloud-ai-lab` or `~/projects/lab-runtime`, the Prefect services or their unit files, or the lab's deployments. Natalia only adds its own deployments to pool `lab`. Never use the lab's Telegram alert bot or its `.env`.
+9. **Leave cloud-ai-lab alone.** Don't edit `~/projects/cloud-ai-lab` or `~/projects/lab-runtime`, the Prefect services or their unit files, or the lab's deployments. Natalia only adds its own deployments, to its own pool `natalia` (task 1.9). Never use the lab's Telegram alert bot or its `.env`.
 10. **Never send private data to the LLM.** The Gemini free tier may use prompts and responses to improve Google's models. News content is fine; secrets, `.env` values, personal details, and private notes are not.
 11. **Message only the human.** While building and testing, the bot and any test script send messages only to the human's own chat ID. Never message family or friends unless the human says so.
 
@@ -62,7 +62,7 @@ Read these before starting work:
 
 - Python: manage with `uv` (`uv init`, `uv add`, `uv run`). Python 3.12.
 - Database: PostgreSQL + pgvector on this server, listening on localhost only. Connection string in `.env` (`DATABASE_URL`).
-- Scheduled jobs are Prefect flows on the shared work pool `lab`, scheduled in `Asia/Phnom_Penh`. No cron, no GitHub Actions.
+- Scheduled jobs are Prefect flows on the lab's Prefect server, in Natalia's own work pool `natalia` (worker `deploy/natalia-worker.service`), scheduled in `Asia/Phnom_Penh`. No cron, no GitHub Actions.
 - Long-running things (the Telegram bot, the website) run as `systemd` services with `MemoryMax` set. Writing a service file is fine; installing it needs `sudo` → ask.
 - LLM: Google Gemini Flash on the free tier, through the official `google-genai` SDK; key `GEMINI_API_KEY` in `.env`. All LLM calls go through one thin wrapper, `natalia/llm.py`; no other module imports `google-genai`. So the provider can be swapped later without touching other code, tests can use a fake, and every call's token use can be logged.
 - Paywalled sources (Bloomberg, FT, WSJ, The Athletic): headline + excerpt + link from the feed only. Never scrape past a paywall. Prefer free sources (Reuters, AP, BBC, …) for full detail.

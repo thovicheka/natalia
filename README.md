@@ -16,10 +16,10 @@ Every day it collects news on nine topics (economics, world politics, technology
               ▼                (robots.txt respected, paywalls never bypassed)
  ┌──────────────── shared server (2 vCPU / 4 GB, Tailscale-only) ────────────────┐
  │                                                                               │
- │  Prefect (lab's, pool "lab")  ──07:00 Asia/Phnom_Penh──►  natalia-daily flow  │
- │                                                           collect → filter →  │
- │                                                           store → embed →     │
- │                                                           summarize → push    │
+ │  Prefect (lab's server,       ──05:00 Asia/Phnom_Penh──►  natalia-daily flow  │
+ │   Natalia's pool "natalia")                               collect → filter →  │
+ │                                                           store → summarize   │
+ │                                                           (alert on failure)  │
  │                                                                │              │
  │  PostgreSQL + pgvector  ◄──── articles, embeddings, summaries ─┘              │
  │        ▲            ▲                                                         │
@@ -40,7 +40,7 @@ Every day it collects news on nine topics (economics, world politics, technology
 | Database | PostgreSQL 16 + pgvector | articles, embeddings, summaries, digests; localhost only |
 | Embeddings | `multilingual-e5-small`, int8, ONNX Runtime on CPU (measured in 1.5) | search across English and Khmer, without an API |
 | LLM | Gemini Flash, free tier, via `google-genai` | summaries, "why it matters", answers; all calls through `natalia/llm.py` |
-| Scheduling | cloud-ai-lab's self-hosted Prefect | the daily flow at 07:00 Asia/Phnom_Penh |
+| Scheduling | cloud-ai-lab's self-hosted Prefect, Natalia's own pool and worker | the daily build at 05:00 Asia/Phnom_Penh |
 | Telegram | Natalia's own bot, long polling | push digest, commands, questions, conversation |
 | Website | Streamlit, later React | feed, personal library, chat; reachable only over Tailscale |
 
@@ -65,6 +65,7 @@ Design rules:
 | [docs/05-embeddings.md](docs/05-embeddings.md) 🧑 | The local embedding model: memory, speed and quality measured |
 | [docs/06-digest.md](docs/06-digest.md) 🧑 | The LLM wrapper, summaries and the daily digest ([first digest](docs/digests/2026-10-16.md)) |
 | [docs/07-bot.md](docs/07-bot.md) 🧑 | Natalia's Telegram bot: sending the digest, owner-only commands, the service |
+| [docs/08-daily-flow.md](docs/08-daily-flow.md) 🧑 | The daily build on Prefect: Natalia's pool and worker, the 05:00 schedule, alerts |
 | [docs/PLAN.md](docs/PLAN.md) | What Natalia should do (the source of truth for features) |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | The task list for humans and agents, and the decisions made |
 | [docs/STATUS.md](docs/STATUS.md) | Live progress: every step of every task, with real output |
