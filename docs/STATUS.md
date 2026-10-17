@@ -4,6 +4,10 @@ Live progress for agent work. The agent updates this after every step and pushes
 
 ## Summary
 
+**Run of 2026-10-17 (task 1.9, branch `task/1.9-daily` from `origin/main` at 45e0b0c): agent part done. No API calls, no Telegram messages, $0.** A Prefect flow `natalia-daily` collects, then builds the day's digest, with at most 12 Haiku requests. It runs in Natalia's own work pool `natalia` with its own worker (`deploy/natalia-worker.service`, `MemoryMax=600M`), as the human chose. The schedule is 05:00 Asia/Phnom_Penh, and the digest's cut-off moved to 05:00 with it. Nothing is sent on success; the owner gets a Telegram alert only on a failure, a plan over the cap, or an empty or incomplete digest. `/digest` with no date now sends yesterday's digest, then today's. The run was measured at 211 MB peak and ~15.5 min, without Prefect or Haiku. ROADMAP gains **1.9b**, owner-only RAG chat: task 2.3 pulled forward.
+
+**Human must:** review and merge `task/1.9-daily`, then follow `docs/08-daily-flow.md` steps 1–5: update the runtime (`git pull`, `uv sync --no-dev`, restart the bot), install the worker (`sudo`), register the deployment with its schedule off, run it once by hand (~9 requests, ~$0.01), record the worker's peak memory, then turn the schedule on.
+
 **Run of 2026-10-17 (task 1.4b, branch `task/1.4b-stable-ties` from `origin/main` at ced0461): done. No API calls, $0.** The same data now always gives the same picks: ties go to the lowest lead-article id, grouping ties to the earliest story, and articles load in a fixed order. `digest build` prints its plan before sending and stops (exit code 3, nothing sent or stored) if the plan is over `--max-requests`. 152 tests pass.
 
 **Human must:** review and merge `task/1.4b-stable-ties`. Note: with the new tie-break, 2 of 2026-10-17's picks differ from the stored digest (economics, markets). A `digest build --date 2026-10-17` would now plan 2 requests (~$0.0004). It isn't needed: today's digest is complete as stored.
@@ -1524,6 +1528,53 @@ All checks passed!
 - The human's PyCharm remote-dev server used **2.1 GB RSS** during this run (`ps`), leaving ~700 MB available on the 4 GB server. If it's open at 07:00, the daily flow will be squeezed into swap. Worth closing the IDE when not in use, or keeping it in mind for 1.9.
 - Science and markets have few free full-text feeds (Phys.org pages: 0/29 full text, Ars Technica 0/13, The Verge 0/10); more free science/markets feeds would improve those sections (a 1.1-style task).
 - Old Google News items (feeds disabled in 1.3) still show in the window for a few days, with ugly news.google.com links. They age out by themselves.
+
+## 1.9 — Daily build on Prefect
+- **Branch:** `task/1.9-daily`, from `origin/main` at 45e0b0c (1.4b merged).
+- **State:** ✅ agent part done; 🧑 steps waiting (install the worker, register, the first run, the schedule). No API calls, no messages sent, $0.
+- **Decisions by the human (2026-10-17, asked before building):**
+  - Natalia's own pool and worker, not the lab's pool `lab`.
+  - Build at 05:00, not 07:00.
+  - No Telegram message on success; alert only on a failure or when the cap is hit.
+  - `/digest` with no date sends yesterday's digest, then today's.
+  - No embed step yet.
+  - The RAG chat goes in ROADMAP as the next task.
+  - Recorded in `decisions.md` ("Daily run").
+- **Done:**
+  - `natalia/daily.py`: the flow `natalia-daily` (no retries, 60 min timeout). It runs `run_daily`: collect, then `digest.build(max_requests=12)`.
+    - Alert and Failed run: collect or build raises, or the build was stopped by the cap.
+    - Alert and Completed run: an empty digest, or stories without a summary.
+    - A failing alert is logged; it never hides the run's error.
+    - `deploy` registers the deployment from `~/projects/natalia-runtime` only, with an inactive `Cron("0 5 * * *", Asia/Phnom_Penh)`.
+  - `deploy/natalia-worker.service`: `prefect worker start --pool natalia --type process --limit 1`, from the runtime `.venv`, `MemoryHigh=450M`, `MemoryMax=600M`. `systemd-analyze verify` only complains that the runtime's `.venv/bin/prefect` doesn't exist yet: it's installed by `uv sync` after the merge.
+  - `natalia/bot.py`: `send_text` (plain text, owner only) for alerts; `/digest` with no date sends yesterday's digest, then today's.
+  - `natalia/topics.py`: `DIGEST_TIME` is now 05:00. A window ending at 07:00 would leave articles from 05:00–07:00 in a window already built. The digest's Markdown header follows `DIGEST_TIME`.
+  - `prefect==3.8.8` added (same version as the lab's server). The `.venv` grew from 343 to 451 MB on disk. Importing it costs ~50 MB, and only the worker and the flow import it.
+  - **Cap 12, not ~15:** a full build plans at most 9 requests (one per topic), and 12 is the CLI's default, leaving room for retries. Worst case ~$0.013 a day.
+  - Docs: new `08-daily-flow.md`; `ROADMAP.md` (Scheduling decision, memory budget, 1.9 rewritten, **1.9b** added, a note on 2.3); `decisions.md`; `04-topics.md`; `07-bot.md`; README; `CLAUDE.md`. Its three lines saying Natalia uses pool `lab` now say pool `natalia`, per the human's decision.
+- **How I checked the Prefect setup (read-only):** the lab worker runs `--limit 2` with `MemoryMax=900M`. The lab's deployments use a `set_working_directory` pull step into `lab-runtime`. `pause_flow_run` keeps a slot for up to 24 h (lab doc 04). Free memory was ~780 MB; PyCharm's remote-dev server uses ~2 GB.
+- **Tests:** `uv run pytest -q` → `169 passed in 20.27s` ✅, ruff clean ✅.
+  - `tests/test_daily.py` (11 tests): the run's logic, with fakes.
+  - `tests/test_daily_flow.py` (2 tests): the real flow on Prefect's temporary local test server, down to `bot.send_text`: Completed with an alert for a missing summary, Failed over the cap. Afterwards the lab's server still lists only `hello`, `hello-gpu` and `train-mnist`.
+  - `tests/test_bot.py`: `/digest` sends yesterday then today; one day missing (either one); `send_text`.
+  - The tests' window ends moved to 05:00 (22:00 UTC).
+- **Measured** (a real collect, free, then a dry-run build of 2026-10-17; no Prefect run, nothing sent):
+  ```console
+  imports (prefect + natalia): 94 MB
+  run time 929 s, 661 HTTP requests, peak memory (max RSS) 208 MB
+  plan: 9 requests (general, economics, world-politics, technology, science, sport, crypto, markets, cambodia); limit 12
+  after dry-run build of 2026-10-17: planned 9, 211 MB peak, 931 s
+  	Maximum resident set size (kbytes): 216336
+  ```
+  ✅ 211 MB peak, plus the worker, ~310 MB under the 600M cap. Collect took 15.5 min. Because of the 05:00 cut-off, all 9 topics of 2026-10-17 have new picks: a build of that day (a manual run today) plans 9 requests (~$0.01) and replaces the stored digest.
+- **Human must** (exact commands in `docs/08-daily-flow.md`):
+  1. Review and merge `task/1.9-daily`.
+  2. `git -C ~/projects/natalia-runtime pull`, `cd ~/projects/natalia-runtime && uv sync --no-dev`, `sudo systemctl restart natalia-bot`.
+  3. Install the worker (`sudo cp …natalia-worker.service`, `daemon-reload`, `enable --now`).
+  4. Register: `cd ~/projects/natalia-runtime && .venv/bin/python -m natalia.daily deploy` (schedule OFF).
+  5. One manual run (~9 requests, ~$0.01), then record `systemctl show natalia-worker -p MemoryPeak` here.
+  6. Turn the schedule on.
+- **Open:** the 1.9 "done when" (two 05:00 runs Completed, peak memory recorded) needs the schedule on.
 
 ## 1.4b — Stable ties and a request guard
 - **Branch:** `task/1.4b-stable-ties`, from `origin/main` at ced0461 (1.7 fully merged, checked: 4fdddbd is in main).
