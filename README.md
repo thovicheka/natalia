@@ -66,7 +66,7 @@ Design rules:
 | [docs/06-digest.md](docs/06-digest.md) 🧑 | The LLM wrapper, summaries and the daily digest ([first digest](docs/digests/2026-10-16.md)) |
 | [docs/07-bot.md](docs/07-bot.md) 🧑 | Natalia's Telegram bot: sending the digest, owner-only commands, the service |
 | [docs/08-daily-flow.md](docs/08-daily-flow.md) 🧑 | The daily build on Prefect: Natalia's pool and worker, the 05:00 schedule, alerts |
-| [docs/09-chat.md](docs/09-chat.md) 🧑 | Chat in Telegram: friendly small talk, and answers from the stored news with sources; remembers the last few messages; English, Khmer or mixed |
+| [docs/09-chat.md](docs/09-chat.md) 🧑 | Chat in Telegram: friendly small talk, general questions, and analysis of the stored news with sources; remembers the last few messages; English, Khmer or mixed |
 | [docs/PLAN.md](docs/PLAN.md) | What Natalia should do (the source of truth for features) |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | The task list for humans and agents, and the decisions made |
 | [docs/STATUS.md](docs/STATUS.md) | Live progress: every step of every task, with real output |

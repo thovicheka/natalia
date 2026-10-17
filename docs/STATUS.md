@@ -9,15 +9,20 @@ Live progress for agent work. The agent updates this after every step and pushes
 - **Sources only when used:** none when the answer says the news doesn't cover it (1.9b showed 3 under such an answer).
 - **Memory:** the last 6 messages per chat, in the bot's RAM, forgotten after 30 minutes or a restart; never stored or logged. "tell me more" becomes a real search query.
 - **Tone and language:** Khmer, English or mixed, casual or formal, as the person writes. Someone who seems upset gets a kind, brief reply and a gentle suggestion to talk to someone they trust.
+- **Additions:**
+  - **Personality:** a normal, friendly person whose specialty is news.
+  - **General questions** ("how do I fix my car's brakes?") are answered, ending with "ℹ️ General knowledge, not from today's news." (`kind=general`).
+  - **News answers analyze:** why it matters, related stories, how sources compare, what changed over the days.
+  - **Current facts** (prices, roles, recent events) come only from stored articles, or the answer says they aren't covered.
 - **Kept:** owner-only, 20 messages a day (small talk included), tokens and requests in `chat_questions`, now with a `kind` column (migration 0004, applied).
-- **Cost:** small talk ~$0.0001; news ~$0.0006, or ~$0.0007 with memory (Khmer ~$0.001). Memory adds +$0.00005 to +$0.0001 per message in English, up to ~+$0.0003 in Khmer. At the cap, ≤ ~$0.02 a day.
-- **Tests:** 208 pass, with fakes for retrieval and Haiku.
+- **Cost:** small talk ~$0.00013–0.00018; general ~$0.0003; news ~$0.00085 with memory (Khmer ~$0.0011). Memory adds +$0.00005 to +$0.0001 per message in English, up to ~+$0.0003 in Khmer. At the cap, ≤ ~$0.025 a day; a realistic day ~$0.007.
+- **Tests:** 212 pass, with fakes for retrieval and Haiku.
 
 **Human must:**
-1. **Approve the first real 1.9c messages.** Command (4 messages, ~$0.0015, 4 of today's 20): `uv run python -m natalia.chat ask "yo sup twin" "Bitcoin price this week" "tell me more" "ugh today was rough"`.
+1. **Approve the first real 1.9c messages.** Command (6 messages, ~$0.003, 6 of today's 20): `uv run python -m natalia.chat ask "yo sup twin" "Bitcoin price this week" "tell me more" "How do I fix my car's brakes?" "Who is the prime minister of Japan right now?" "ugh today was rough"`.
 2. Review and merge `task/1.9c-natural-chat`.
 3. Then `git -C ~/projects/natalia-runtime pull --ff-only origin main` and `sudo systemctl restart natalia-bot`. No new packages; the migration is already applied.
-4. Decide whether 20 messages a day is enough now that small talk counts (50 would be ≤ ~$0.04 a day).
+4. Decide whether 20 messages a day is enough now that small talk counts (50 would be ≤ ~$0.05 a day).
 5. Still from 1.9b: after the next daily run, record `systemctl show natalia-worker -p MemoryPeak`.
 
 **Run of 2026-10-17 (task 1.9b, branch `task/1.9b-chat` from `origin/main` at 091e9cc): done; the first real question worked from the CLI ($0.0005). The bot doesn't chat yet: the runtime was pulled before the merge.**
@@ -1634,6 +1639,13 @@ All checks passed!
     - **Sources:** none when `covered` is false, in `answer` and in `render`.
     - Requests and tokens are summed over both requests.
     - Cap renamed `DAILY_MESSAGES` (still 20); its text says "messages".
+    - **Additions (commit 16741af):**
+      - **Personality:** both prompts describe Natalia as a normal, friendly person whose specialty is news.
+      - **Third kind, `general`:** a general-knowledge answer (how-to, science, advice), 1 request. `render` adds "ℹ️ General knowledge, not from today's news." (English or Khmer), so the line can't be forgotten. The reply-or-search request may now use 1,500 output tokens (was 1,000) for a how-to.
+      - **Current facts are always `news`:** prices, scores, who holds a role, recent events. Chat and general replies must not state them.
+      - **News answers analyze:** why it matters, related stories, how sources report it, what changed over the days, only when the articles support it; about 3 to 8 sentences (was 2 to 6). Facts only from the articles; "don't guess".
+      - Articles are now listed oldest first in the prompt.
+      - Migration 0004's comment now mentions `general` (a comment only; the applied column is unchanged).
     - CLI: `ask` takes several messages and remembers them in order.
   - `migrations/0004_chat_kind.sql`: `chat_questions.kind` (`chat`/`news`). Applied:
     ```console
@@ -1647,11 +1659,13 @@ All checks passed!
   - "yo sup twin" searched as news (the old path, `--dry-run`): two Reuters stock pages and a motorbike story.
   - Prompt sizes: reply-or-search system prompt 1,717 characters; 6 remembered messages ~1,200; the answer prompt 10,314 → 11,514 with memory. At 0.42 tokens per character (measured on 1.9b's question), memory adds ~510 tokens per request in English.
   - **Cost change from memory:** +$0.00005 per small-talk message, +$0.0001 per news message (sent to both requests); up to ~+$0.0003 in Khmer. The reply-or-search request adds ~$0.0001 to each news question. At the cap: ~$0.014 a day (Khmer ~$0.02), against $0.01 for 1.9b.
-- **Tests:** `uv run pytest -q` → `208 passed` ✅, ruff clean ✅.
-  - `tests/test_chat.py`: 29, 10 of them new: small talk without search or sources, an empty reply, the query fallback, "not covered" without sources, the reply prompt's rules, memory (per chat, idle, cut, failures, never in the database), a follow-up carrying the previous exchange.
+- **Additions, measured (free):** the system prompts grew to 2,345 (reply-or-search) and 1,550 (answer) characters; the answer prompt is 10,907 characters, or 12,107 with memory. **Cost now:** small talk ~$0.00013–0.00018, general ~$0.0003, news ~$0.00075 (no memory) to ~$0.00085 (memory), Khmer news ~$0.0011. At the cap ~$0.017 a day (Khmer ~$0.022). Memory's share is unchanged: +$0.00005 to +$0.0001 per message.
+- **Tests:** `uv run pytest -q` → `212 passed` ✅, ruff clean ✅.
+  - Additions: a general question (no search, the note in English and Khmer, `kind=general` stored, no note on small talk); an unknown kind treated as chat; the news prompt's rules; articles oldest first; the reply prompt's personality and "always news" rules.
+  - `tests/test_chat.py`: 33, 14 of them new since 1.9b, including: small talk without search or sources, an empty reply, the query fallback, "not covered" without sources, the reply prompt's rules, memory (per chat, idle, cut, failures, never in the database), a follow-up carrying the previous exchange.
   - `tests/test_bot.py`: the log line has `kind` and `requests`, and never the message's text.
   - The tone, language and upset behaviour are prompt rules: tests check the rules are in the prompt, not how Haiku follows them. That needs the real messages (step 7 of `09-chat.md`).
-- **Next:** 🧑 approve the four-message run; merge; pull; restart the bot; try Khmer, mixed, and a news question the articles can't answer.
+- **Next:** 🧑 approve the six-message run; merge; pull; restart the bot; try Khmer, mixed, and a news question the articles can't answer.
 - **Open:**
   - Raise the cap now that small talk counts?
   - A `/forget` command to clear memory at once (now: wait 30 minutes or restart the bot)?
