@@ -134,7 +134,77 @@ def test_dry_run_calls_nothing(scratch, day_articles):
     r = dg.build(scratch, DAY, dry_run=True, log=lines.append)
     assert r.requests == 2 and llm.usage.requests == 0
     assert dg.load_digest(scratch, DAY) is None
-    assert lines[0].startswith("[dry run]")
+    assert lines[0] == "plan: 2 requests (economics, science); limit 12"
+    assert lines[1].startswith("[dry run]")
+
+
+def test_build_prints_the_plan_before_sending(scratch, day_articles):
+    fake = FakeLLM()
+    lines = []
+
+    def log(line):
+        lines.append((line, len(fake.prompts)))
+
+    llm.use_client(fake)
+    r = dg.build(scratch, DAY, log=log, sleep=lambda s: None)
+    assert lines[0] == ("plan: 2 requests (economics, science); limit 12", 0)  # nothing sent yet
+    assert (r.planned, r.requests, r.stopped) == (2, 2, False)
+
+
+def test_plan_bigger_than_max_requests_sends_and_stores_nothing(scratch, day_articles):
+    fake = FakeLLM()
+    llm.use_client(fake)
+    lines = []
+    r = dg.build(scratch, DAY, max_requests=1, log=lines.append, sleep=lambda s: None)
+    assert r.stopped and r.planned == 2 and r.requests == 0
+    assert fake.prompts == [] and llm.usage.requests == 0
+    assert dg.load_digest(scratch, DAY) is None
+    assert sorted(r.missing) == sorted(day_articles.values())
+    assert lines[-1] == "stopped: the plan is over --max-requests 1; sent nothing"
+
+
+def test_plan_equal_to_max_requests_goes_ahead(scratch, day_articles):
+    llm.use_client(FakeLLM())
+    r = dg.build(scratch, DAY, max_requests=2, log=lambda *_: None, sleep=lambda s: None)
+    assert not r.stopped and r.requests == 2 and r.summarized == 3
+
+
+def test_dry_run_says_a_real_build_would_stop(scratch, day_articles):
+    llm.use_client(FakeLLM())
+    lines = []
+    r = dg.build(scratch, DAY, max_requests=1, dry_run=True, log=lines.append)
+    assert r.stopped and llm.usage.requests == 0
+    assert "a real build would stop here" in lines[1]
+
+
+def test_nothing_to_summarize_plans_zero_requests(scratch, day_articles):
+    llm.use_client(FakeLLM())
+    dg.build(scratch, DAY, log=lambda *_: None, sleep=lambda s: None)
+    lines = []
+    r = dg.build(scratch, DAY, max_requests=0, log=lines.append, sleep=lambda s: None)
+    assert lines[0] == "plan: 0 requests (nothing to summarize); limit 0"
+    assert not r.stopped and r.requests == 0
+
+
+def test_cli_exits_3_when_the_plan_is_too_big(monkeypatch, capsys):
+    class Conn:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    monkeypatch.setattr(dg.db, "connect", lambda **kw: Conn())
+    seen = {}
+
+    def fake_build(conn, day, **kw):
+        seen.update(kw)
+        return dg.BuildReport(day=day, model="fake", planned=9, stopped=True)
+
+    monkeypatch.setattr(dg, "build", fake_build)
+    assert dg.main(["build", "--max-requests", "3"]) == 3
+    assert seen["max_requests"] == 3
+    assert "not built (9 requests planned); nothing sent" in capsys.readouterr().out
 
 
 def test_parse_reply_ignores_unknown_and_empty():

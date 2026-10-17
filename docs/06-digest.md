@@ -17,6 +17,7 @@
 ## How it works
 - **`natalia/llm.py`** is the only module that imports an LLM SDK (`anthropic` or `google-genai`; a test checks it). `LLM_PROVIDER` (environment or `.env`) picks the backend, `anthropic` by default, and each provider has a pinned model (`MODELS`). `generate(prompt, system=…, json_schema=…)` returns the text and token counts; 429 and 5xx errors are retried up to 3 times after the wait the error asks for (capped at 65 s); `set_max_calls(n)` caps a process's requests, retries included; every request (failed ones too) is one JSON line in `logs/llm-usage.jsonl` (git-ignored). Thinking is turned down: `effort: "low"` on Claude, `thinking_level="low"` on Gemini 3, budget 0 on Gemini 2. Claude gets no `temperature` (Haiku 5.5 answers 400 to non-default sampling values), its JSON comes from structured outputs (`output_config.format`, with `additionalProperties: false` added to every object by `strict_schema()`), a refusal is an error, and the SDK's own retries are off, so every request counts against the cap. Claude's thinking tokens are logged apart from its output tokens.
 - **`natalia/digest.py build`**: for each topic, one request with the stories that have no summary yet. The prompt holds news only: id, headline, source, date and up to 2,500 characters of the article (or the feed's excerpt for paywalled sources); no links, nothing about the reader. The reply is JSON (`{"items": [{id, summary, why_it_matters}]}`), checked against the ids sent. Summaries go into `summaries` (one per article and language), so a re-run reuses them and sends nothing; the picks go into `digests` / `digest_items`, with request and token counts. Requests are spaced 13 s apart (≤ 5 a minute).
+- **Request guard (task 1.4b):** before sending anything, `build` prints its plan: `plan: N requests (topics…); limit M`. If N is more than `--max-requests` (default 12), it stops (`stopped: the plan is over --max-requests M; sent nothing`), stores nothing and exits with code 3. A `--dry-run` shows the same plan and says whether a real build would stop. `--max-requests` still caps the requests actually sent, retries included.
 - **A story left without a summary** (no item for its id, or a reply that isn't valid JSON): the raw reply is saved to `logs/digest-replies/` (git-ignored, news only) with the ids sent and missing and why the model stopped (`stop_reason`, e.g. `max_tokens`), and the build log names the file.
 - **`show`** renders a stored digest as Markdown (`--save` writes `docs/digests/<date>.md`). The bot (task 1.8) reads the same stored digest.
 - Why Claude Haiku 5.5, its cost, and why one request per topic: [decisions](decisions.md#llm-claude-haiku-55-on-the-anthropic-api-over-gemini-which-was-blocked), [Gemini (superseded)](decisions.md#llm-gemini-flash-on-the-free-tier-over-the-anthropic-api).
@@ -141,7 +142,7 @@ Requests used in this build: **3** (1 × 404, 2 × 403), **0 tokens**. From `log
 uv run python -m natalia.digest build --date <date>            # 9 requests
 uv run python -m natalia.digest show --date <date> --save      # → docs/digests/<date>.md
 ```
-*What it does:* summarizes the stories that have none yet (one request per topic, 13 s apart, at most 12 requests), stores everything, and prints one line per topic with its token counts, then the totals. Re-running it sends nothing for stories already summarized. `--no-llm` stores the picks without summaries.
+*What it does:* prints the plan (requests and topics) and stops before sending if it needs more than `--max-requests` (default 12); otherwise summarizes the stories that have none yet (one request per topic, 13 s apart), stores everything, and prints one line per topic with its token counts, then the totals. Re-running it sends nothing for stories already summarized. `--no-llm` stores the picks without summaries.
 
 <details><summary>Example from this build</summary>
 
@@ -197,6 +198,25 @@ world-politics: 1/1 summarized, 1423 in / 361 out tokens
 digest 2026-10-17: 44 stories, 41 summaries reused, 3 new, 0 missing; 2 requests, 3626 input + 895 output tokens, 21 s
 ```
 **Result:** ✅ 44 of 44 summarized; ⚠️ 2 requests instead of 1. **Cost:** 3,626 × $0.10/M + 895 × $0.50/M = **$0.0008** (expected ~$0.0002). **Cause of the extra request:** the picks changed between the two builds with no new articles (last collected 2026-10-16 06:05 UTC). `top_stories` breaks equal scores with `id(story)`, a Python memory address that differs between runs (`natalia/topics.py`, `pick_topics`), and `load_window` has no `ORDER BY`. So in general the Oregon shooting story was now led by the Guardian's article instead of the BBC's, "They fled Russia…" moved from world-politics to general (and was summarized there), and another story moved into world-politics. **Fix (not made, task 1.4 code):** break ties on a stable key such as the lead article's id. Recorded as an open question.
+
+The request guard (task 1.4b, 2026-10-17). The key is emptied for the first command, so not even a bug in the guard could send a paid request. With the new tie-break, 2 of the day's picks differ from the stored ones, so the plan is 2 requests:
+```console
+$ ANTHROPIC_API_KEY= uv run python -m natalia.digest build --date 2026-10-17 --max-requests 1
+plan: 2 requests (economics, markets); limit 1
+stopped: the plan is over --max-requests 1; sent nothing
+
+digest 2026-10-17: not built (2 requests planned); nothing sent
+$ echo $?
+3
+$ uv run python -m natalia.digest build --date 2026-10-17 --max-requests 1 --dry-run
+plan: 2 requests (economics, markets); limit 1
+[dry run] a real build would stop here: more than --max-requests 1
+[dry run] economics: 1 stories, ~668 input tokens
+[dry run] markets: 1 stories, ~671 input tokens
+
+digest 2026-10-17: 44 stories, 42 summaries reused, 0 new, 0 missing; 2 requests, 0 input + 0 output tokens, 0 s
+```
+**Result:** ✅ stopped before sending, exit code 3; `logs/llm-usage.jsonl` still has 17 lines (no request attempted).
 
 Since then, a request that leaves a story without a summary saves its raw reply to `logs/digest-replies/<date>-<topic>-<HHMMSS>.json` (git-ignored), with the ids sent and missing, the token counts and the model's `stop_reason`. The rerun had nothing missing, so it saved nothing.
 </details>

@@ -106,6 +106,8 @@ class BuildReport:
     input_tokens: int = 0
     output_tokens: int = 0
     per_request: list[dict] = field(default_factory=list)
+    planned: int = 0  # requests the build needs: one per topic with stories lacking a summary
+    stopped: bool = False  # the plan was bigger than max_requests: nothing sent or stored
 
 
 def _clip(text: str, n: int) -> str:
@@ -250,7 +252,11 @@ def build(
     """Pick the day's stories, summarize those without a summary (one request per topic), store
     everything. A failed topic is logged and skipped; its stories are listed in `missing`.
     `no_llm`: store the picks only (a later build adds the summaries). `model`: default, the
-    LLM provider's pinned model (natalia.llm, LLM_PROVIDER)."""
+    LLM provider's pinned model (natalia.llm, LLM_PROVIDER).
+
+    Before sending anything it logs the plan (how many requests, for which topics). If the plan
+    needs more than `max_requests`, it stops: nothing is sent or stored, and `stopped` is set.
+    `max_requests` also caps the requests actually sent, retries included."""
     model = model or llm.default_model()
     end = day_window(day)[1]
     picks, _, _ = top_stories(conn, end, per_topic=per_topic)
@@ -262,13 +268,26 @@ def build(
     done = existing_summaries(conn, lead_ids, language)
     report.reused = len(done)
     articles = load_articles(conn, lead_ids)
+    plan = [
+        (topic, [articles[s.lead.id] for s in picks[topic] if s.lead.id not in done])
+        for topic in DIGEST_ORDER
+    ]
+    plan = [(topic, todo) for topic, todo in plan if todo]
+    report.planned = len(plan)
+    if not no_llm:
+        names = ", ".join(topic for topic, _ in plan) or "nothing to summarize"
+        log(f"plan: {len(plan)} requests ({names}); limit {max_requests}")
+        if len(plan) > max_requests:
+            report.stopped = True
+            if not dry_run:
+                report.missing = [a.id for _, todo in plan for a in todo]
+                log(f"stopped: the plan is over --max-requests {max_requests}; sent nothing")
+                return report
+            log(f"[dry run] a real build would stop here: more than --max-requests {max_requests}")
     llm.set_max_calls(max_requests)
     requests_before = llm.usage.requests
     first = True
-    for topic in DIGEST_ORDER:
-        todo = [articles[s.lead.id] for s in picks[topic] if s.lead.id not in done]
-        if not todo:
-            continue
+    for topic, todo in plan:
         if no_llm:
             report.missing += [a.id for a in todo]
             continue
@@ -427,7 +446,13 @@ def main(argv: list[str] | None = None) -> int:
     b = sub.add_parser("build", help="pick, summarize and store a day's digest")
     b.add_argument("--date", type=date.fromisoformat)
     b.add_argument("--topics", help="comma-separated topics (default: all)")
-    b.add_argument("--max-requests", type=int, default=MAX_REQUESTS)
+    b.add_argument(
+        "--max-requests",
+        type=int,
+        default=MAX_REQUESTS,
+        help="stop before sending if the plan needs more requests than this; also caps the "
+        "requests sent, retries included (default: %(default)s)",
+    )
     b.add_argument("--dry-run", action="store_true", help="show the requests, send nothing")
     b.add_argument("--no-llm", action="store_true", help="store the picks without summaries")
     b.add_argument("--model", help="LLM model (default: the LLM_PROVIDER's pinned model)")
@@ -455,6 +480,9 @@ def main(argv: list[str] | None = None) -> int:
                 no_llm=args.no_llm,
                 model=args.model,
             )
+            if r.stopped and not args.dry_run:
+                print(f"\ndigest {day}: not built ({r.planned} requests planned); nothing sent")
+                return 3
             print(
                 f"\ndigest {day}: {r.stories} stories, {r.reused} summaries reused, "
                 f"{r.summarized} new, {len(r.missing)} missing; {r.requests} requests, "

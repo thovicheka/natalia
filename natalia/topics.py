@@ -390,7 +390,8 @@ def same_news(a: Story, b: Story) -> bool:
 
 def group_stories(articles: list[Article]) -> list[Story]:
     """Group articles from *different* sites whose headlines are similar to a headline already
-    in the story. Articles go in publication order; each joins at most one story."""
+    in the story. Articles go in publication order; each joins at most one story. Deterministic:
+    when an article fits several stories equally well, it joins the earliest one."""
     stories: list[Story] = []
     keys: list[list[frozenset[str]]] = []
     by_token: dict[str, list[int]] = defaultdict(list)
@@ -401,7 +402,9 @@ def group_stories(articles: list[Article]) -> list[Story]:
         placed = False
         if len(toks) >= 3:
             candidates = Counter(i for t in toks for i in set(by_token.get(t, ())))
-            for idx, n in candidates.most_common():
+            # Not most_common(): its ties follow the order of `toks`, a frozenset whose order
+            # changes between runs (string hashing is randomized per process).
+            for idx, n in sorted(candidates.items(), key=lambda c: (-c[1], c[0])):
                 if n < 3:
                     break
                 story = stories[idx]
@@ -459,7 +462,8 @@ def load_window(conn: psycopg.Connection, start: datetime, end: datetime) -> lis
                   a.also_seen, left(a.body, 20000)
            FROM articles a JOIN sources s ON s.id = a.source_id
            WHERE LEAST(coalesce(a.published_at, a.collected_at), a.collected_at) >= %s
-             AND LEAST(coalesce(a.published_at, a.collected_at), a.collected_at) < %s""",
+             AND LEAST(coalesce(a.published_at, a.collected_at), a.collected_at) < %s
+           ORDER BY 12, a.id""",
         (start, end),
     ).fetchall()
     out = []
@@ -498,15 +502,18 @@ def pick_top(
 
     `first` (the day's headlines) picks before the others; then all (story, topic) pairs go in
     score order; on equal scores a topic from the story's feeds beats one from the rules, then
-    the topic listed first in PLAN.md. At most `max_per_site` stories per topic lead with the
-    same site, and a story that is the same news as one already picked (same_news) is skipped.
+    the topic listed first in PLAN.md, then the story whose lead article has the lowest id (so
+    the same data always gives the same picks). At most `max_per_site` stories per topic lead
+    with the same site, and a story that is the same news as one already picked (same_news) is
+    skipped.
     """
     pairs = []
     for story in stories:
         feed_topics = story.feed_topics
+        lead_id = story.lead.id
         for topic in story.topics:
             score, reasons = score_story(story, topic, end)
-            key = (topic != first, -score, topic not in feed_topics, TOPICS.index(topic), id(story))
+            key = (topic != first, -score, topic not in feed_topics, TOPICS.index(topic), lead_id)
             pairs.append((key, topic, story, score, reasons))
     pairs.sort(key=lambda p: p[0])
     picked: dict[str, list[Story]] = {t: [] for t in TOPICS}

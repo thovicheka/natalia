@@ -1,6 +1,6 @@
 # Stage 4 — Topics and top stories
 
-**Tasks:** 1.4 · **Status:** ✅ done (🧑: judge whether the picks look sensible)
+**Tasks:** 1.4, 1.4b · **Status:** ✅ done (🧑: judge whether the picks look sensible). 1.4b (2026-10-17): the same data always gives the same picks.
 
 **What you'll have working by the end:** every stored article tagged with all its topics (its feed's, plus keyword rules such as "mentions Cambodia"), and a command that picks the day's top 5 stories per topic, preferring stories several sites cover, recent ones and ones with full text. No LLM calls.
 
@@ -26,7 +26,7 @@ group into stories (same news, different sites) ──► score ──► pick 5
 - **Language:** the same pass sets `language` from the headline's script: some "English" feeds (Khmer Times) carry Khmer items.
 - **Stories:** headlines from *different* sites are the same story when they share 3+ content words and those words carry half the weight of the shorter headline; a word weighs more the fewer of the day's headlines use it ("albania" more than "trump"). Each article's `also_seen` (sites whose identical headline the collector dropped) counts too.
 - **Score:** +2.5 per extra site (up to 4), up to +1 for recency, +1 full text (or +0.3 excerpt), minus up to 4 for items that aren't news (puzzle hints, deal posts, analyst ratings, transcripts, listicles, obituaries, opinion columns, live blogs), and −4 under Cambodia for a Cambodian feed's item that doesn't mention Cambodia (Khmer feeds also carry world news).
-- **Picking:** "general" (the day's headlines) picks first, then every (story, topic) pair in score order; on equal scores a feed topic beats a rule topic. Each story appears once, at most 2 stories per topic lead with the same site, and a story that plainly repeats one already picked is skipped. Why each choice: [decisions](decisions.md#top-stories-coverage-first-no-llm).
+- **Picking:** "general" (the day's headlines) picks first, then every (story, topic) pair in score order; on equal scores a feed topic beats a rule topic, then the story whose lead article has the lowest id wins (1.4b). Grouping is deterministic too: articles load in a fixed order, and an article that fits two stories equally well joins the earliest one. So a re-run on the same data picks the same stories. Each story appears once, at most 2 stories per topic lead with the same site, and a story that plainly repeats one already picked is skipped. Why each choice: [decisions](decisions.md#top-stories-coverage-first-no-llm).
 
 ## Steps
 
@@ -195,15 +195,57 @@ Known weak spots, left as is: science and markets are thin (few free feeds give 
 ```bash
 uv run pytest -q tests/test_topics.py
 ```
-*What it does:* the rules on sample headlines (English, Khmer with zero-width spaces, words inside other words such as "said" or "whether"), language detection, story grouping (across sites only, Google News publishers), scoring, picking (5 per topic, each story once, general first, 2 per site), the day window, and against the real database (inside a rolled-back transaction): tagging is idempotent and fixes the language; top stories come from the right window.
+*What it does:* the rules on sample headlines (English, Khmer with zero-width spaces, words inside other words such as "said" or "whether"), language detection, story grouping (across sites only, Google News publishers), scoring, picking (5 per topic, each story once, general first, 2 per site), the day window, ties (the lowest lead id wins, whatever the input order), the same picks from separate processes with different hash seeds (1.4b), and against the real database (inside a rolled-back transaction): tagging is idempotent and fixes the language; top stories come from the right window.
 
 <details><summary>Example from this build</summary>
 
 ```console
 $ uv run pytest -q
 101 passed in 0.95s
+$ uv run pytest -q tests/test_topics.py            # 2026-10-17, after 1.4b
+36 passed in 2.80s
 ```
-**Result:** ✅
+**Result:** ✅ The two new tests fail on the code before 1.4b. With only the lead-id tie-break, the hash-seed test still fails (`PYTHONHASHSEED=1`), so the grouping fix is needed too.
+</details>
+
+### 5. Check that a re-run picks the same stories
+```bash
+for seed in 1 2 3 4 5; do PYTHONHASHSEED=$seed uv run python -m natalia.topics top --date <date> > /tmp/top-$seed.txt; done
+md5sum /tmp/top-*.txt
+```
+*What it does:* picks the same day's stories in five separate processes, each with a different string-hash seed (the seed Python otherwise randomizes on every run). All five checksums must match. Free: no LLM calls.
+
+> **If you see** different checksums, **it means** a tie is still broken by something that changes between runs (memory addresses, set order). `diff` two of the files to see which story moves.
+
+<details><summary>Example from this build (2026-10-17, task 1.4b)</summary>
+
+Before 1.4b, five runs gave two different sets of picks for the same data:
+```console
+$ md5sum old-*.txt          # the same loop, before 1.4b
+eae959ae61031fe431f31720473fcf61  old-1.txt
+eae959ae61031fe431f31720473fcf61  old-2.txt
+5aff52fc949741efcae05e26259f834d  old-3.txt
+5aff52fc949741efcae05e26259f834d  old-4.txt
+5aff52fc949741efcae05e26259f834d  old-5.txt
+$ diff old-1.txt old-3.txt | head -4
+8,11c8
+< 2. [ 1.21] Repairing Brexit economic damage should be Burnham’s top priority, business chief says
+<    The Guardian Economics · 10-16 12:00 · full · 1 site(s): theguardian.com
+<    https://www.theguardian.com/business/2026/oct/16/brexit-economic-damage-andy-burnham-uk-business-eu-trading-relationship
+```
+❌ **Cause:** equal scores were broken by `id(story)` (a memory address), and `group_stories` broke ties in the order of a `frozenset` of words. **Fix:** tie-break on the lead article's id, join the earliest story, load articles `ORDER BY` time and id.
+
+After:
+```console
+$ for seed in 1 2 3 4 5; do PYTHONHASHSEED=$seed uv run python -m natalia.topics top --date 2026-10-17 > new-$seed.txt; done
+$ md5sum new-*.txt
+af2488acae4ee090d7d40e4e38dcad8b  new-1.txt
+af2488acae4ee090d7d40e4e38dcad8b  new-2.txt
+af2488acae4ee090d7d40e4e38dcad8b  new-3.txt
+af2488acae4ee090d7d40e4e38dcad8b  new-4.txt
+af2488acae4ee090d7d40e4e38dcad8b  new-5.txt
+```
+**Result:** ✅ identical.
 </details>
 
 ## Verify it worked
