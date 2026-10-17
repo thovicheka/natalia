@@ -46,7 +46,19 @@ Why each tool and rule was picked, and what it was picked over. The short versio
   - **Hosted PostgreSQL** (Supabase, Neon): no install, but data leaves the server and free tiers have limits.
 - **Trade-offs:** installing it needs `sudo` (a 🧑 step). pgvector isn't a "trusted" extension, so the human creates it once as superuser; the migration only checks for it. Localhost only.
 
+## Daily run: Natalia's own Prefect pool and worker, built at 05:00, alerts only (task 1.9)
+- **Decided by the human on 2026-10-17**, after the agent laid out the trade-offs. Supersedes the pool and the 07:00 time in "Scheduling" below; Prefect itself stays.
+- **Own pool `natalia` and worker `natalia-worker.service`** (limit 1, `MemoryMax=600M`), on the lab's Prefect server, running from `~/projects/natalia-runtime`.
+  - **Why:** a lab GPU flow waiting for approval keeps its process alive and holds one of the lab worker's 2 slots for up to 24 h; two of them would block the digest. The lab worker's 900M cap is shared with lab training, so a Natalia run could be killed by, or kill, a lab flow. With its own worker, Natalia's runs, logs and memory are separate, and updating Natalia never touches the lab's services.
+  - **Alternative:** the lab's pool `lab`, with the deployment's `command` job variable pointing at Natalia's `.venv`: no new service, no `sudo`, nothing idle.
+  - **Trade-off:** ~80–100 MB idle for the second worker, all day, and one more unit to install (`sudo`).
+- **Built at 05:00 Asia/Phnom_Penh, and the digest's cut-off moves to 05:00 with it** (`natalia.topics.DIGEST_TIME`), so the digest is ready before the human wakes. The window must end at the build time: with a 07:00 cut-off, articles published 05:00–07:00 would belong to a window already built and never be summarized. Digests stored before 1.9 used the 07:00 window; a rebuild of those days now uses 05:00 and may pick slightly different stories.
+- **Nothing is pushed on success.** `/digest` (no date) sends yesterday's digest, then today's. The owner gets one short Telegram message only when something needs a look: a step failed, the plan was over the request cap (nothing sent), or the digest is empty or has stories without a summary (the last two don't fail the run).
+- **Request cap for the daily run: 12** (`DAILY_MAX_REQUESTS`, same as the CLI's default). A full build plans one request per topic, at most 9; the cap leaves room for retries and stops a bug from sending more. Worst case ~$0.013 a day.
+- **No flow retries**: a retry could resend LLM requests. A rerun by hand is cheap anyway, because a build only sends stories without a summary.
+
 ## Scheduling: the lab's self-hosted Prefect (over cron and GitHub Actions)
+*(Pool and time superseded by "Daily run" above: Natalia's own pool, 05:00.)*
 - **Why:** it's already running on this server (~300 MB for server + worker), so Natalia adds no service and no memory. Runs get states (scheduled, running, completed, failed), retries, logs and a UI at `http://lab:4200`, over Tailscale. Natalia only adds its own deployment to the shared work pool `lab`, scheduled at 07:00 Asia/Phnom_Penh.
 - **Alternatives considered:**
   - **cron** (PLAN.md's first idea): nothing to set up, but no run history, no UI, and failures are silent unless we build alerting.

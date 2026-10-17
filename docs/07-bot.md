@@ -93,7 +93,7 @@ Not run: creating the bot and sending messages are the human's steps. **Result:*
 ```bash
 uv run python -m natalia.bot run       # Ctrl+C to stop
 ```
-Then, in Telegram: `/start`, `/digest`, `/digest <date>`. From another account (a friend's phone), any message gets "Sorry, this is a private bot." once.
+Then, in Telegram: `/start`, `/digest` (yesterday's digest, then today's; a missing one gets "No digest stored for <date> yet." and the other is still sent), `/digest <date>` (that day only). From another account (a friend's phone), any message gets "Sorry, this is a private bot." once.
 
 ### 6. 🧑 Run it as a service
 The service runs from a **runtime worktree** on `main` (as cloud-ai-lab's `lab-runtime` does), so switching branches in `~/projects/natalia` never changes what runs. Task 1.9 uses the same worktree for the daily flow.
@@ -149,4 +149,4 @@ $ uv run pytest -q
 systemctl is-active natalia-bot
 journalctl -u natalia-bot -n 5 --no-pager | grep -c "api.telegram.org/bot"   # must print 0
 ```
-Expected: `active`, and `0` (no request URL, so no token, in the logs). Then `/digest` in Telegram returns the day's digest.
+Expected: `active`, and `0` (no request URL, so no token, in the logs). Then `/digest` in Telegram returns yesterday's and today's digests.

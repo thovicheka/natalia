@@ -26,7 +26,7 @@ import psycopg
 
 from natalia import db, llm
 from natalia.feeds import TOPICS
-from natalia.topics import LOCAL_TZ, PER_TOPIC, Story, day_window, top_stories
+from natalia.topics import DIGEST_TIME, LOCAL_TZ, PER_TOPIC, Story, day_window, top_stories
 
 ROOT = Path(__file__).resolve().parent.parent
 DIGEST_DIR = ROOT / "docs" / "digests"
@@ -414,8 +414,9 @@ def to_markdown(d: Digest) -> str:
     lines = [
         f"# Natalia daily digest — {d.day:%A %d %B %Y}",
         "",
-        f"News from the 24 hours before 07:00 Asia/Phnom_Penh. {llm_note} Each summary sits "
-        "under the source's own headline, link and text; read the source to check it.",
+        f"News from the 24 hours before {DIGEST_TIME:%H:%M} Asia/Phnom_Penh. {llm_note} "
+        "Each summary sits under the source's own headline, link and text; read the source "
+        "to check it.",
     ]
     for topic, items in d.by_topic().items():
         if not items:

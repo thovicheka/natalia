@@ -15,7 +15,7 @@ import pytest
 from natalia import topics as tp
 from natalia.collect import normalize_title
 
-END = datetime(2026, 10, 16, 0, 0, tzinfo=UTC)  # 07:00 Asia/Phnom_Penh
+END = datetime(2026, 10, 15, 22, 0, tzinfo=UTC)  # 05:00 Asia/Phnom_Penh on 2026-10-16
 _ids = iter(range(1, 10_000))
 
 
@@ -274,8 +274,8 @@ def test_two_builds_on_the_same_data_pick_the_same_stories():
 
 def test_day_window():
     start, end = tp.day_window(date(2026, 10, 16))
-    assert end == datetime(2026, 10, 16, 0, 0, tzinfo=UTC)
-    assert start == datetime(2026, 10, 15, 0, 0, tzinfo=UTC)
+    assert end == datetime(2026, 10, 15, 22, 0, tzinfo=UTC)  # 05:00 Asia/Phnom_Penh
+    assert start == datetime(2026, 10, 14, 22, 0, tzinfo=UTC)
 
 
 # --- database -------------------------------------------------------------------------------

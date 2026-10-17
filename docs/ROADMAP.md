@@ -21,7 +21,7 @@ Don't swap these without asking the human.
 | LLM | **Google Gemini Flash, free tier**, through the official `google-genai` Python SDK. Key `GEMINI_API_KEY` from aistudio.google.com (🧑); no paid account, no billing. All calls go through one thin wrapper, `natalia/llm.py`, so the provider can be swapped later without touching other code. |
 | Embeddings | **Stay local: a small multilingual model on CPU** (start with `intfloat/multilingual-e5-small`, 384 dimensions), checked on Khmer too. Fall back to an embedding API only if the local model fails on memory or quality (task 1.5). |
 | Database | **PostgreSQL + pgvector on this server**, localhost only. Installing it is a 🧑 `sudo` step. |
-| Scheduling | **The lab's self-hosted Prefect**: work pool `lab`, daily at **07:00 Asia/Phnom_Penh**. Not GitHub Actions, not cron. |
+| Scheduling | **The lab's self-hosted Prefect server, in Natalia's own work pool `natalia`** with its own worker (`natalia-worker.service`), so lab flows paused for approval can't block the digest (decided in 1.9; was pool `lab`). The digest is built daily at **05:00 Asia/Phnom_Penh** (was 07:00), ready before the human wakes; nothing is pushed, the bot's `/digest` serves it. Not GitHub Actions, not cron. |
 | Telegram | **Natalia's own new bot**, separate from the lab's alert bot. Long polling, run as a `systemd` service. |
 | Website | **Personal, Tailscale-only.** No public URL, no tunnel, no domain. |
 | Voice | **Later phase (4)**, via a speech API or a Modal GPU job. The server CPU is too small for Whisper. |
@@ -119,12 +119,18 @@ Goal: every morning at 07:00 the human gets a digest on Telegram: headline, link
   - 🤖 Bot code (long polling) that sends the stored digest to the owner's chat, a `systemd` service file with `MemoryMax`, and tests with a fake Telegram API (no bot is created and no message sent by the agent).
   - **Done when:** the token and chat ID are in `.env`, and the human has received a test digest from the bot.
 
-- [ ] **1.9 Morning push on Prefect** — 🤖 + 🧑 → `docs/08-daily-flow.md`
-  - 🤖 A Prefect flow `natalia-daily`: collect → filter → store → embed → summarize → send the digest to the owner's chat. Failures send a short message to the owner.
-  - 🤖 A runtime worktree `~/projects/natalia-runtime` (like the lab's `lab-runtime`), so branch switches never change what runs. The deployment uses Natalia's own `.venv` through the process pool's `command` job variable; check that the lab's worker (Prefect 3.8.8) runs it that way.
-  - 🧑 Register the deployment and its schedule (07:00 Asia/Phnom_Penh). The schedule calls Gemini every day, so the human turns it on.
-  - Watch for: the lab worker runs at most 2 flows at once, and paused lab GPU approvals hold slots. A paused run at 07:00 could delay the digest.
-  - **Done when:** the digest arrives at 07:00 two mornings in a row, both runs are Completed in the Prefect UI, and peak memory is recorded.
+- [ ] **1.9 Daily build on Prefect** — 🤖 + 🧑 → `docs/08-daily-flow.md`
+  - 🤖 A Prefect flow `natalia-daily`: collect → filter → store → summarize (digest build, capped by `--max-requests`). Nothing is sent on success: `/digest` serves the stored digest. The owner gets a short Telegram message only if a step fails, the plan is over the cap (nothing sent to the LLM), or the digest is empty or has stories without a summary. Embedding joins the flow when chat (1.9b) needs the vectors.
+  - 🤖 Natalia's own work pool `natalia` and worker unit (`deploy/natalia-worker.service`, `MemoryMax`), running from the runtime worktree `~/projects/natalia-runtime` and its `.venv`. The digest's cut-off moves to 05:00 so the build covers the whole window. `/digest` with no date sends yesterday's digest, then today's.
+  - 🧑 Install the worker (`sudo`), register the deployment with its schedule OFF (05:00 Asia/Phnom_Penh), run it once by hand, then turn the schedule on. The schedule calls Haiku every day (~$0.01).
+  - **Done when:** the digest is built at 05:00 two mornings in a row, both runs are Completed in the Prefect UI, and peak memory is recorded.
+
+- [ ] **1.9b Chat in Telegram (RAG), owner-only** — 🤖 (🧑 tests it)
+  - The human's next priority (2026-10-17), pulled forward from Phase 2: it is **task 2.3 (Questions, RAG)** with its daily cap, for the owner only, so it doesn't wait for 2.1's allowlist.
+  - 🤖 Any plain text message from the owner is answered by Claude Haiku (`natalia/llm.py`), using only stored articles retrieved with pgvector (plus keyword search if it helps), always with sources (headline + link). Say so when the news doesn't cover the question. Add the embedding step to the daily flow so new articles get vectors.
+  - 🤖 A daily question cap (requests per day), so chat can't run up the bill; over the cap, a short reply says so. Strangers still get the one-line refusal and no LLM call.
+  - 🧑 Approve the API use and ask it real questions.
+  - **Done when:** answers cite real stored articles with links, a question the news doesn't cover gets an honest "not in the news", and the cap works.
 
 - [ ] **1.10 Document Phase 1** — 🤖 → review and complete Phase 1's stage docs (`01-sources.md` … `08-daily-flow.md`): every step with real output, nothing left only in STATUS.md, README's docs table up to date.
 
@@ -143,7 +149,7 @@ Goal: the Telegram bot answers commands, questions, and follow-ups, grounded in 
   - 🤖 `/today`, one command per topic (`/economics`, `/crypto`, `/cambodia`, …), `/help`. They read stored digests: no LLM call.
   - **Done when:** every command returns today's items in the news format.
 
-- [ ] **2.3 Questions (RAG)** — 🤖 (🧑 tests it)
+- [ ] **2.3 Questions (RAG)** — 🤖 (🧑 tests it) — *the owner-only version is pulled forward as 1.9b; what's left here is opening it to the allowlist (2.1).*
   - 🤖 Retrieve with pgvector (plus keyword search if it helps), answer with the LLM using only retrieved articles, always with links. Say so when the news doesn't cover the question.
   - 🤖 Quota guard: a daily cap on LLM calls per user, so chat can't use up the free tier's daily quota before the next digest.
   - 🧑 Ask it real questions (approve the API use).

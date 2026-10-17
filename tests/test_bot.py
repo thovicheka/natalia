@@ -154,6 +154,35 @@ def test_digest_command_sends_the_stored_digest_to_the_owner():
     assert ctx.bot.sent and all(m["chat_id"] == OWNER for m in ctx.bot.sent)
 
 
+def test_digest_without_a_date_sends_yesterday_then_today(monkeypatch):
+    monkeypatch.setattr(nb, "today", lambda: date(2026, 10, 17))
+    days = []
+
+    def load(day):
+        days.append(day)
+        return Digest(day, "en", "fake", 9, 100, 50, [item("economics", 1)])
+
+    up, ctx = update(OWNER), context(load=load)
+    run(nb.handle_digest(up, ctx))
+    assert days == [date(2026, 10, 16), date(2026, 10, 17)]
+    headers = [m["text"] for m in ctx.bot.sent if "📰" in m["text"]]
+    assert ["Friday 16 October" in headers[0], "Saturday 17 October" in headers[1]] == [True, True]
+    assert up.effective_message.replies == []
+
+
+@pytest.mark.parametrize("missing", [date(2026, 10, 16), date(2026, 10, 17)])
+def test_digest_without_a_date_says_which_day_is_missing_and_sends_the_other(monkeypatch, missing):
+    monkeypatch.setattr(nb, "today", lambda: date(2026, 10, 17))
+
+    def load(day):
+        return None if day == missing else Digest(day, "en", "fake", 9, 100, 50, [item("sport", 1)])
+
+    up, ctx = update(OWNER), context(load=load)
+    run(nb.handle_digest(up, ctx))
+    assert up.effective_message.replies == [f"No digest stored for {missing} yet."]
+    assert len([m for m in ctx.bot.sent if "📰" in m["text"]]) == 1
+
+
 def test_digest_command_bad_date_and_missing_digest():
     up = update(OWNER)
     run(nb.handle_digest(up, context(args=["yesterday"], load=lambda d: None)))
@@ -171,6 +200,12 @@ def test_send_digest_with_an_injected_bot(monkeypatch):
     monkeypatch.setattr(nb, "load", lambda day: None)
     with pytest.raises(LookupError):
         run(nb.send_digest(date(2026, 10, 16), bot=fake, chat_id=OWNER))
+
+
+def test_send_text_is_plain_text_to_the_given_chat():
+    fake = FakeBot()
+    run(nb.send_text("⚠️ <collect> failed", bot=fake, chat_id=OWNER))
+    assert fake.sent == [{"chat_id": OWNER, "text": "⚠️ <collect> failed"}]  # no HTML parsing
 
 
 # --- configuration and secrets -----------------------------------------------------------------

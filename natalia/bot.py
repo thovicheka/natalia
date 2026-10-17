@@ -12,8 +12,9 @@ anyone else gets one short refusal and nothing else (no LLM call, nothing stored
 The token is a secret: it is never printed, and the HTTP library's request log (which would show
 it inside every API URL) is kept at WARNING.
 
-Commands (owner only): /start, /digest (today's digest, or /digest 2026-10-16), /help. They read
-stored digests: no LLM call. Task 2.2 adds /today and the per-topic commands.
+Commands (owner only): /start, /digest (yesterday's and today's digests, or /digest 2026-10-16
+for one day), /help. They read stored digests: no LLM call. Task 2.2 adds /today and the
+per-topic commands. `send_text` is the daily flow's alert to the owner (task 1.9).
 """
 
 from __future__ import annotations
@@ -23,7 +24,7 @@ import asyncio
 import html
 import logging
 import os
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -41,7 +42,7 @@ log = logging.getLogger("natalia.bot")
 START_TEXT = (
     "Hi, I'm Natalia, your news agent. Every morning I send a digest of the day's top stories, "
     "each with its source, a short summary and why it matters.\n\n"
-    "/digest: today's digest\n/digest 2026-10-16: another day's\n/help: this message"
+    "/digest: yesterday's and today's digests\n/digest 2026-10-16: one day's\n/help: this message"
 )
 REFUSAL_TEXT = "Sorry, this is a private bot."
 
@@ -197,6 +198,18 @@ async def send_digest(day: date, *, bot=None, chat_id: int | None = None) -> int
     return await send_messages(bot, chat_id, digest_messages(d))
 
 
+async def send_text(text: str, *, bot=None, chat_id: int | None = None) -> None:
+    """One plain-text message to the owner (the daily flow's alerts)."""
+    if bot is None or chat_id is None:
+        from telegram import Bot
+
+        token, owner = config()
+        async with Bot(token) as bot:
+            await bot.send_message(chat_id=owner, text=text)
+        return
+    await bot.send_message(chat_id=chat_id, text=text)
+
+
 # --- the bot (long polling) -------------------------------------------------------------------
 
 
@@ -218,18 +231,21 @@ async def handle_digest(update, context) -> None:
     if not is_owner(update, owner):
         await refuse(update, context)
         return
-    day = today()
     if context.args:
         try:
-            day = date.fromisoformat(context.args[0])
+            days = [date.fromisoformat(context.args[0])]
         except ValueError:
             await update.effective_message.reply_text("Use /digest or /digest YYYY-MM-DD.")
             return
-    d = context.bot_data.get("load", load)(day)
-    if d is None:
-        await update.effective_message.reply_text(f"No digest stored for {day} yet.")
-        return
-    await send_messages(context.bot, owner, digest_messages(d))
+    else:
+        days = [today() - timedelta(days=1), today()]
+    loader = context.bot_data.get("load", load)
+    for day in days:
+        d = loader(day)
+        if d is None:
+            await update.effective_message.reply_text(f"No digest stored for {day} yet.")
+            continue
+        await send_messages(context.bot, owner, digest_messages(d))
 
 
 async def refuse(update, context) -> None:
