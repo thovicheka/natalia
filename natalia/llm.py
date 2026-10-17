@@ -57,6 +57,7 @@ class Result:
     output_tokens: int = 0
     thinking_tokens: int = 0
     requests: int = 1  # requests sent, including retries
+    stop_reason: str = ""  # why the model stopped (Claude: end_turn, max_tokens, …), if known
 
 
 class Usage:
@@ -150,6 +151,7 @@ class AnthropicClient:
             input_tokens=u.input_tokens or 0,
             output_tokens=max((u.output_tokens or 0) - thinking, 0),  # Claude counts thinking in
             thinking_tokens=thinking,  # output_tokens; split it out like Gemini does
+            stop_reason=resp.stop_reason or "",
         )
 
 

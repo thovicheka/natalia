@@ -36,6 +36,7 @@ class FakeLLM:
 def fresh(monkeypatch, tmp_path):
     monkeypatch.setattr(llm, "usage", llm.Usage())
     monkeypatch.setattr(llm, "USAGE_LOG", tmp_path / "usage.jsonl")
+    monkeypatch.setattr(dg, "REPLY_DIR", tmp_path / "replies")
     yield
     llm.use_client(None)
 
@@ -112,6 +113,19 @@ def test_missing_answers_are_reported_and_shown(scratch, day_articles):
     assert r.missing == [skip]
     md = dg.to_markdown(dg.load_digest(scratch, DAY))
     assert "summary pending" in md
+
+
+def test_raw_reply_is_saved_only_when_a_story_is_missing(scratch, day_articles):
+    skip = day_articles["Comet seen over Zebraland"]
+    llm.use_client(FakeLLM(skip=[skip]))
+    lines = []
+    dg.build(scratch, DAY, log=lines.append, sleep=lambda s: None)
+    files = list(dg.REPLY_DIR.glob("*.json"))
+    assert len(files) == 1 and files[0].name.startswith("2020-01-02-science-")
+    saved = json.loads(files[0].read_text())
+    assert saved["missing_ids"] == [skip] and saved["sent_ids"] == [skip]
+    assert json.loads(saved["reply"]) == {"items": []}
+    assert any("raw reply saved to" in line for line in lines)
 
 
 def test_dry_run_calls_nothing(scratch, day_articles):

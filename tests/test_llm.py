@@ -198,6 +198,7 @@ def test_anthropic_request_shape_and_result():
     assert fmt["type"] == "json_schema" and fmt["schema"]["additionalProperties"] is False
     assert r.text == '{"items": []}'
     assert (r.input_tokens, r.output_tokens, r.thinking_tokens) == (40, 12, 7)
+    assert r.stop_reason == "end_turn"
 
 
 def test_anthropic_without_schema_or_system_sends_neither():

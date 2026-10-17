@@ -30,6 +30,8 @@ from natalia.topics import LOCAL_TZ, PER_TOPIC, Story, day_window, top_stories
 
 ROOT = Path(__file__).resolve().parent.parent
 DIGEST_DIR = ROOT / "docs" / "digests"
+# Raw LLM replies that left a story without a summary, to see why (git-ignored, news only).
+REPLY_DIR = ROOT / "logs" / "digest-replies"
 TEXT_CHARS = 2500  # of an article's text sent to the LLM
 DETAIL_CHARS = 320  # of the feed's detail shown under the headline
 REQUEST_GAP_S = 13.0  # between requests: at most ~5 a minute, under the free tier's limit
@@ -158,6 +160,31 @@ def parse_reply(text: str, wanted: set[int]) -> dict[int, tuple[str, str]]:
     return out
 
 
+def save_reply(day: date, topic: str, r: llm.Result, sent: list[int], missing: list[int]):
+    """Write the raw reply of a request that left stories without a summary to REPLY_DIR, with
+    the ids sent and missing and why the model stopped. Returns the path, or None on failure."""
+    now = datetime.now().astimezone()
+    path = REPLY_DIR / f"{day}-{topic}-{now:%H%M%S}.json"
+    entry = {
+        "at": now.isoformat(timespec="seconds"),
+        "day": str(day),
+        "topic": topic,
+        "model": r.model,
+        "stop_reason": r.stop_reason,
+        "input_tokens": r.input_tokens,
+        "output_tokens": r.output_tokens,
+        "sent_ids": sent,
+        "missing_ids": missing,
+        "reply": r.text,
+    }
+    try:
+        REPLY_DIR.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(entry, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+    except OSError:
+        return None  # a diagnostic must never break a digest
+    return path
+
+
 def store_summaries(conn, results: dict[int, tuple[str, str]], language: str, model: str) -> None:
     with conn.transaction():
         for art_id, (summary, why) in results.items():
@@ -279,11 +306,16 @@ def build(
             results = {}
         store_summaries(conn, results, language, r.model)
         report.summarized += len(results)
-        report.missing += [a.id for a in todo if a.id not in results]
+        missing = [a.id for a in todo if a.id not in results]
+        report.missing += missing
         log(
             f"{topic}: {len(results)}/{len(todo)} summarized, "
             f"{r.input_tokens} in / {r.output_tokens} out tokens"
         )
+        if missing:
+            saved = save_reply(day, topic, r, [a.id for a in todo], missing)
+            if saved:
+                log(f"{topic}: missing {missing}, raw reply saved to {saved}")
     if not dry_run:
         report.requests = llm.usage.requests - requests_before  # failed requests count too
         store_digest(conn, day, language, picks, report)
