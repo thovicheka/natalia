@@ -1,7 +1,14 @@
 """Tests for topic tagging and top stories (task 1.4). Pure functions run on made-up articles;
 the database tests run inside a transaction that is rolled back (see conftest.py)."""
 
+import dataclasses
+import json
+import os
+import random
+import subprocess
+import sys
 from datetime import UTC, date, datetime, timedelta
+from pathlib import Path
 
 import pytest
 
@@ -188,6 +195,81 @@ def test_pick_top_limits_unique_and_general_first():
     assert len(picks["world-politics"]) == 5
     assert len(picks["crypto"]) == 2  # at most 2 from one site per topic
     assert picks["science"] == []
+
+
+def test_tied_scores_pick_the_lowest_lead_id_whatever_the_input_order():
+    tied = [
+        dataclasses.replace(art(f"{w} story {w}", f"https://t{i}.test/1", ["science"]), id=aid)
+        for i, (w, aid) in enumerate(
+            [("Quokka", 204), ("Narwhal", 201), ("Axolotl", 203), ("Pangolin", 202)]
+        )
+    ]
+    for order in (tied, tied[::-1], random.Random(1).sample(tied, len(tied))):
+        picks = tp.pick_top(tp.group_stories(order), END, per_topic=2)
+        assert [s.lead.id for s in picks["science"]] == [201, 202]
+
+
+# Made-up words, so no triple shares a word with another and none is a stopword.
+WORDS = [
+    "zorvan quelt mirabo dastek felbor".split(),
+    "kipra vondel sarith lumox teprin".split(),
+    "brunal ostik yeldra cavorn mispel".split(),
+]
+
+
+def _tie_scenario(reverse: bool = False) -> dict[str, list[list[int]]]:
+    """Picks for a day full of ties, as {topic: [article ids of each picked story]}.
+
+    Three triples: A and B come from the same site (so they never group) and share 3 words; C,
+    from another site, shares 4 with each, so it fits A and B equally well. Plus four single
+    stories with equal scores. Ids are fixed, so separate processes build the same data.
+    """
+    arts = []
+    for k, w in enumerate(WORDS):
+        base = 100 + 10 * k
+        for n, (words, site, hours) in enumerate(
+            [(w[:4], f"a{k}", 5), (w[:3] + w[4:], f"a{k}", 4), (w, f"c{k}", 3)]
+        ):
+            a = art(" ".join(words), f"https://{site}.test/{n}", ["science"], hours_old=hours)
+            arts.append(dataclasses.replace(a, id=base + n))
+    singles = [
+        "Quokka census grows",
+        "Narwhal tusk study",
+        "Axolotl gene map",
+        "Pangolin trade ban",
+    ]
+    for i, title in enumerate(singles):
+        a = art(title, f"https://s{i}.test/1", ["science"], hours_old=6)
+        arts.append(dataclasses.replace(a, id=200 + i))
+    if reverse:
+        arts.reverse()
+    picks = tp.pick_top(tp.group_stories(arts), END, per_topic=5)
+    return {t: [sorted(a.id for a in s.articles) for s in ss] for t, ss in picks.items() if ss}
+
+
+def test_two_builds_on_the_same_data_pick_the_same_stories():
+    """Each build runs in its own process, with a different string-hash seed (Python randomizes
+    it per process, which changes the order of sets of words) and half with the input reversed.
+    Before task 1.4b, ties were broken by memory addresses and word order, so picks could change
+    from one build to the next with no new articles."""
+    expected = {"science": [[100, 102], [110, 112], [120, 122], [200], [201]]}
+    assert _tie_scenario() == expected
+    code = (
+        "import json, sys; sys.path.insert(0, 'tests'); import test_topics as t; "
+        "print(json.dumps(t._tie_scenario(sys.argv[1] == '1')))"
+    )
+    root = Path(__file__).resolve().parent.parent
+    for seed in range(1, 11):
+        env = {**os.environ, "PYTHONHASHSEED": str(seed)}
+        out = subprocess.run(
+            [sys.executable, "-c", code, str(seed % 2)],
+            cwd=root,
+            env=env,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+        assert json.loads(out) == expected, f"PYTHONHASHSEED={seed}"
 
 
 def test_day_window():

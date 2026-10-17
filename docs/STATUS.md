@@ -4,6 +4,10 @@ Live progress for agent work. The agent updates this after every step and pushes
 
 ## Summary
 
+**Run of 2026-10-17 (task 1.4b, branch `task/1.4b-stable-ties` from `origin/main` at ced0461): done. No API calls, $0.** The same data now always gives the same picks: ties go to the lowest lead-article id, grouping ties to the earliest story, and articles load in a fixed order. `digest build` prints its plan before sending and stops (exit code 3, nothing sent or stored) if the plan is over `--max-requests`. 152 tests pass.
+
+**Human must:** review and merge `task/1.4b-stable-ties`. Note: with the new tie-break, 2 of 2026-10-17's picks differ from the stored digest (economics, markets). A `digest build --date 2026-10-17` would now plan 2 requests (~$0.0004). It isn't needed: today's digest is complete as stored.
+
 **Run of 2026-10-17: 1.7 switched from Gemini to Claude Haiku 5.5 (same branch `task/1.7-digest`). Waiting for the human's approval of the first real call.** `natalia/llm.py` has an Anthropic backend (official `anthropic` SDK 1.15.0, `claude-haiku-5-5`, key `ANTHROPIC_API_KEY`), and it is now the default. `LLM_PROVIDER=gemini` still selects the old Gemini code. 130 tests pass (fakes only), and the linter is clean. **0 Anthropic calls made, $0 spent.** The decision is recorded in `docs/decisions.md`, the stage doc `docs/06-digest.md` is updated, and `.env.example` has the new lines.
 
 **Update, same day: the ping worked (run by the human: 18 in / 4 out tokens). The first full digest was built with the human's approval: 9 requests, 42,713 input + 10,766 output tokens, $0.0097. 43 of 44 stories were summarized, and one world-politics story is missing.** Saved to `docs/digests/2026-10-17.md`.
@@ -1520,6 +1524,43 @@ All checks passed!
 - The human's PyCharm remote-dev server used **2.1 GB RSS** during this run (`ps`), leaving ~700 MB available on the 4 GB server. If it's open at 07:00, the daily flow will be squeezed into swap. Worth closing the IDE when not in use, or keeping it in mind for 1.9.
 - Science and markets have few free full-text feeds (Phys.org pages: 0/29 full text, Ars Technica 0/13, The Verge 0/10); more free science/markets feeds would improve those sections (a 1.1-style task).
 - Old Google News items (feeds disabled in 1.3) still show in the window for a few days, with ugly news.google.com links. They age out by themselves.
+
+## 1.4b — Stable ties and a request guard
+- **Branch:** `task/1.4b-stable-ties`, from `origin/main` at ced0461 (1.7 fully merged, checked: 4fdddbd is in main).
+- **State:** ✅ done. No API calls, no money spent.
+- **Why:** on 2026-10-17 a rerun of the digest sent 2 requests instead of 1, because the picks changed with no new articles (see 1.7).
+- **Done:**
+  - `natalia/topics.py`:
+    - `pick_top` breaks equal scores on the lead article's id instead of `id(story)`, a memory address.
+    - `group_stories` sends an article that fits two stories equally well to the earliest one. Before, `Counter.most_common()` followed the order of a `frozenset` of words, which the per-process hash seed changes.
+    - `load_window` has `ORDER BY` time, id.
+  - `natalia/digest.py`: `build` logs `plan: N requests (topics…); limit M` before sending anything. If N > `--max-requests`, it stops with nothing sent or stored (`BuildReport.stopped`), and the CLI exits 3. A dry run shows the plan and says whether a real build would stop. The existing `--max-requests` flag (default 12) does this; I didn't add a second flag with the same name. It still caps the requests actually sent, retries included.
+  - Docs: `04-topics.md` (step 5, the re-run check), `06-digest.md` (the guard), and `decisions.md` (Top stories).
+- **Tests:** `uv run pytest -q` → `152 passed in 6.30s` ✅, ruff clean ✅. New tests:
+  - `test_two_builds_on_the_same_data_pick_the_same_stories`: 10 separate processes with different `PYTHONHASHSEED`s, half with the input reversed, on a made-up day full of ties.
+  - `test_tied_scores_pick_the_lowest_lead_id_whatever_the_input_order`.
+  - Six digest tests: the plan printed before any request, plan over the limit (nothing sent or stored), plan equal to the limit, dry run, nothing to summarize, CLI exit code 3.
+  - Against the old `topics.py`, both topic tests fail. With only the lead-id tie-break, the hash-seed test still fails (`PYTHONHASHSEED=1`), so the grouping fix is needed too.
+- **Real data (free, local):** `natalia.topics top --date 2026-10-17` in 5 processes with different hash seeds gave **2 different sets of picks before** (checksums `eae959ae…` ×2, `5aff52fc…` ×3) and **one after** (`af2488ac…` ×5). Details: `docs/04-topics.md` step 5.
+- **Guard on real data**, with the key emptied so no request was possible:
+  ```console
+  $ ANTHROPIC_API_KEY= uv run python -m natalia.digest build --date 2026-10-17 --max-requests 1
+  plan: 2 requests (economics, markets); limit 1
+  stopped: the plan is over --max-requests 1; sent nothing
+  
+  digest 2026-10-17: not built (2 requests planned); nothing sent
+  $ echo $?
+  3
+  $ uv run python -m natalia.digest build --date 2026-10-17 --max-requests 1 --dry-run
+  plan: 2 requests (economics, markets); limit 1
+  [dry run] a real build would stop here: more than --max-requests 1
+  [dry run] economics: 1 stories, ~668 input tokens
+  [dry run] markets: 1 stories, ~671 input tokens
+  
+  digest 2026-10-17: 44 stories, 42 summaries reused, 0 new, 0 missing; 2 requests, 0 input + 0 output tokens, 0 s
+  ```
+  ✅ The usage log is unchanged (17 lines).
+- **Human must:** review and merge. Optionally add 1.4b to ROADMAP (it isn't there; not changed here).
 
 ## 1.5 — Embeddings: evaluate the local model
 - **Branch:** `task/1.5-embeddings` (stacked on `task/1.4-filter`)
