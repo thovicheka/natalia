@@ -19,7 +19,7 @@ per-topic commands. `send_text` is the daily flow's alert to the owner (task 1.9
 Chat (tasks 1.9b, 1.9c, owner only): any other text message is answered by Haiku
 (natalia/chat.py): small talk gets a friendly reply, news questions an answer from the stored
 articles with sources. The last few messages are remembered in RAM so follow-ups work. One or two
-LLM requests per message, ≤ ~$0.0008, at most 20 messages a day.
+LLM requests per message, ~$0.0001–0.001, at most 50 messages a day. /forget clears the memory.
 Questions are answered one at a time, so only one retrieval process (~330 MB) runs at once.
 """
 
@@ -48,11 +48,13 @@ log = logging.getLogger("natalia.bot")
 START_TEXT = (
     "Hi, I'm Natalia, your news agent. Every morning I send a digest of the day's top stories, "
     "each with its source, a short summary and why it matters.\n\n"
-    "/digest: yesterday's and today's digests\n/digest 2026-10-16: one day's\n/help: this message"
+    "/digest: yesterday's and today's digests\n/digest 2026-10-16: one day's\n"
+    "/forget: forget our recent messages\n/help: this message"
     "\n\nOr just talk to me, in English or Khmer. Ask about the news and I'll answer from the "
     "articles I've collected, with links."
 )
 NOT_TEXT = "I can only read text messages for now."
+FORGET_TEXT = "Done, I've forgotten our recent messages. Fresh start!"
 
 REFUSAL_TEXT = "Sorry, this is a private bot."
 
@@ -258,6 +260,18 @@ async def handle_digest(update, context) -> None:
         await send_messages(context.bot, owner, digest_messages(d))
 
 
+async def handle_forget(update, context) -> None:
+    """/forget: drop the chat's conversation memory now (no LLM call, not counted)."""
+    owner = context.bot_data["owner"]
+    if not is_owner(update, owner):
+        await refuse(update, context)
+        return
+    from natalia import chat
+
+    context.bot_data.get("memory", chat.MEMORY).forget(owner)
+    await update.effective_message.reply_text(FORGET_TEXT)
+
+
 async def refuse(update, context) -> None:
     """One short refusal per chat per run; nothing else is done for strangers."""
     chat = update.effective_chat
@@ -276,6 +290,7 @@ def build_app(token: str, owner: int):
     app.add_handler(CommandHandler("start", handle_start))
     app.add_handler(CommandHandler("help", handle_start))
     app.add_handler(CommandHandler("digest", handle_digest))
+    app.add_handler(CommandHandler("forget", handle_forget))
     app.add_handler(MessageHandler(filters.ALL, handle_other))
     return app
 

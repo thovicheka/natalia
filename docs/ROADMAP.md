@@ -144,8 +144,10 @@ Goal: every morning at 07:00 the human gets a digest on Telegram: headline, link
   - 🤖 Short conversation memory: the last ~6 messages per chat, so "tell me more" works; message text kept no longer than needed. *Kept in the bot's RAM for 30 minutes, not in PostgreSQL as 2.4 planned (decisions.md, "Chat").*
   - 🤖 Reply in the person's language and tone (Khmer, English or mixed). If someone seems genuinely upset: kind and brief, gently suggest talking to someone they trust.
   - 🤖 Keep owner-only, the daily cap and the cost logging; estimate the cost change from memory.
+  - 🤖 Additions (same day): Natalia feels like a normal, friendly person whose specialty is news. General questions ("how do I fix my car's brakes?") get a helpful general-knowledge answer that says it isn't from today's news. News answers analyze (why it matters, related stories, how sources compare, what changed since previous days). Current facts (prices, who holds a role, recent events) only from stored articles; otherwise say so.
+  - 🤖 The human's decisions (2026-10-18): cap raised to 50 messages a day; `/forget` clears the conversation memory; the general/news line stays as it is until real use shows mistakes.
   - 🧑 Approve the API use and talk to it.
-  - **Done when:** small talk gets a friendly reply with no sources, news questions get sourced answers, a follow-up works, and the cap still holds.
+  - **Done when:** small talk gets a friendly reply with no sources, a general question gets a marked general-knowledge answer, news questions get analyzed, sourced answers, a follow-up works, an uncovered current fact gets "not in the news", and the cap still holds.
 
 - [ ] **1.10 Document Phase 1** — 🤖 → review and complete Phase 1's stage docs (`01-sources.md` … `08-daily-flow.md`): every step with real output, nothing left only in STATUS.md, README's docs table up to date.
 

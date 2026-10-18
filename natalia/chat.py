@@ -8,25 +8,29 @@ How a message is answered:
 1. **Cap**: at most DAILY_MESSAGES per chat per day (Asia/Phnom_Penh). The message is counted
    before anything is sent, so a failing one still counts.
 2. **Reply or search** (one Haiku request, small): Haiku gets the last few messages of the chat
-   (`Memory`) and the new one, and decides. Small talk, greetings, jokes, thanks, general
-   questions: it writes the reply itself, in the person's language and tone; no search, no
-   sources. News and current events (or a follow-up like "tell me more"): it writes a standalone
-   search query instead.
+   (`Memory`) and the new one, and decides. Small talk ("chat") and questions answered from lasting
+   general knowledge ("general", e.g. how to fix brakes; the reply says it isn't from the news):
+   it writes the reply itself, in the person's language and tone; no search, no sources. News
+   and current facts (prices, who holds a role, recent events, or a follow-up like "tell me
+   more"): it writes a standalone search query instead, because its own knowledge of them is out
+   of date.
 3. **Search**, in a child process (`retrieve`): embed the query with the local e5 model and take
    the nearest stored articles of the last RETRIEVE_DAYS days (pgvector). The model takes ~300
    MB; in a child it is freed as soon as the search is done, so the bot stays small. The query
    goes to the child on stdin, never on the command line (visible in `ps`).
-4. **Answer** (a second Haiku request): the articles, the conversation and the message; JSON
-   back: covered or not, the answer, the ids of the articles it used.
+4. **Answer** (a second Haiku request): the articles (oldest first), the conversation and the
+   message; JSON back: covered or not, the answer, the ids of the articles it used. Facts only
+   from the articles; the answer analyzes them (why it matters, related stories, how sources
+   differ, what changed over the days) and says so when they don't cover the question.
 5. **Reply**: the answer, then the sources it used (headline as a link, source, date), taken from
    the database, so every link is a real stored article. Ids the LLM made up are dropped, and an
    answer that says the news doesn't cover the question lists no sources.
 
 Memory: the last MEMORY_MESSAGES messages of each chat (the owner's and Natalia's, each cut to
-MEMORY_CHARS), in the bot's RAM only. Forgotten after MEMORY_IDLE_S without a message, or when
-the bot restarts. Never written to the database or the logs: `chat_questions` keeps counts and
-tokens only. The messages are sent to the LLM provider (Anthropic) to be answered: that is the
-feature, and it's the owner's own text.
+MEMORY_CHARS), in the bot's RAM only. Forgotten after MEMORY_IDLE_S without a message, on /forget,
+or when the bot restarts. Never written to the database or the logs: `chat_questions` keeps
+counts and tokens only. The messages are sent to the LLM provider (Anthropic) to be answered:
+that is the feature, and it's the owner's own text.
 """
 
 from __future__ import annotations
@@ -47,7 +51,7 @@ import psycopg
 from natalia import db, llm
 from natalia.topics import LOCAL_TZ
 
-DAILY_MESSAGES = 20  # per chat per day; ~$0.0001 (small talk) to ~$0.001 each, ≤ ~$0.02 a day
+DAILY_MESSAGES = 50  # per chat per day; ~$0.0001 (small talk) to ~$0.001 each, ≤ ~$0.055 a day
 RETRIEVE_K = 8  # articles given to the LLM
 RETRIEVE_DAYS = 30  # only articles from the last 30 days
 MAX_DISTANCE = 0.25  # cosine distance; farther articles aren't related enough to send
@@ -55,31 +59,41 @@ TEXT_CHARS = 1200  # of each article's text sent to the LLM
 MAX_OUTPUT_TOKENS = 2000  # thinking included
 RETRIEVE_TIMEOUT_S = 120
 QUESTION_CHARS = 1000  # a longer message is cut
-REPLY_OUTPUT_TOKENS = 1000  # the reply-or-search request; thinking included
+REPLY_OUTPUT_TOKENS = 1500  # the reply-or-search request (a how-to answer); thinking included
 MEMORY_MESSAGES = 6  # remembered per chat: 3 of the owner's and 3 of Natalia's
 MEMORY_CHARS = 600  # of each remembered message
 SOURCES_CHARS = 300  # of the headlines remembered with a news answer
 MEMORY_IDLE_S = 30 * 60  # a chat silent this long starts afresh
 
-REPLY_SYSTEM = """You are Natalia, a friendly assistant chatting with one person on Telegram, \
-and a news expert: every day you collect news on economics, world politics, technology, science, \
-sport, crypto, stock markets, Cambodia and the top stories, and keep the articles.
+REPLY_SYSTEM = """You are Natalia, chatting with one person on Telegram. You're a normal, \
+friendly person, and your specialty is news: every day you collect articles on economics, world \
+politics, technology, science, sport, crypto, stock markets, Cambodia and the top stories, then \
+analyze them and report what matters.
 
 Decide what the new message needs:
-- "news": it asks about news, current events, recent prices or results, what someone did lately, \
-or it follows up on news already discussed ("tell me more", "why?", "and Ethereum?"). Leave \
-"reply" empty. In "search", write a short standalone search query for the stored articles, with \
-names and topics filled in from the conversation (after Bitcoin's price, "tell me more" becomes \
-"Bitcoin price this week"). Keep the query in the message's language.
-- "chat": anything else: greetings, small talk, jokes, slang, thanks, questions about you, \
-general knowledge that doesn't depend on recent events. Leave "search" empty and write "reply".
+- "news": anything about news or current facts: recent events, prices, scores, who holds a role \
+now, what someone did lately, or a follow-up on news already discussed ("tell me more", "why?", \
+"and Ethereum?"). Your own knowledge of these is out of date, so they are always "news", even \
+when you think you know. Leave "reply" empty. In "search", write a short standalone search query \
+for the stored articles, with names and topics filled in from the conversation (after Bitcoin's \
+price, "tell me more" becomes "Bitcoin price this week"). Keep the query in the message's \
+language.
+- "general": a question you can answer from lasting general knowledge that doesn't depend on \
+recent events: how-to, how things work, science, history, definitions, advice ("how do I fix my \
+car's brakes?"). Answer it helpfully in "reply": clear and practical, a few sentences, or short \
+steps if that helps; mention safety when it matters. Don't add a note that it's general \
+knowledge: one is added for you. Leave "search" empty.
+- "chat": greetings, small talk, jokes, slang, thanks, how you are, questions about you. Write \
+"reply" and leave "search" empty.
 
-How to write a chat reply:
-- Natural and warm, like a friend texting back: usually one to three short sentences.
+How to write a "chat" or "general" reply:
+- Like a friendly person texting back: natural and warm. Chat replies are usually one to three \
+short sentences.
 - Match the person's language and tone: Khmer, English, or the same mix of both; casual if they \
 are casual, slang if they use slang, polite if they are formal.
-- No sources, links, headings or lists. Never make up news; if they seem to want news, offer to \
-look something up, or mention /digest for the day's top stories.
+- No sources or links. Never state current facts (prices, who holds a role, recent events) from \
+your own knowledge; if they come up, offer to check the news, or mention /digest for the day's \
+top stories.
 - If they seem genuinely upset, sad or stressed: be kind and brief, no jokes and no news, and \
 gently suggest talking to someone they trust. If they say they might hurt themselves or are in \
 danger, urge them to contact local emergency services or someone near them right away.
@@ -89,21 +103,29 @@ Today is {today} (Asia/Phnom_Penh)."""
 REPLY_SCHEMA = {
     "type": "object",
     "properties": {
-        "kind": {"type": "string", "enum": ["chat", "news"]},
+        "kind": {"type": "string", "enum": ["chat", "general", "news"]},
         "reply": {"type": "string"},
         "search": {"type": "string"},
     },
     "required": ["kind", "reply", "search"],
 }
 
-SYSTEM = """You are Natalia, answering a question about the news in a Telegram chat, using only \
-the numbered news articles given with it. Rules:
-- Use only facts from those articles. Never add facts from your own knowledge.
+SYSTEM = """You are Natalia, a friendly news analyst, answering a question in a Telegram chat. \
+The numbered news articles given with it are your only source for facts about current events; \
+they are listed oldest first. Rules:
+- Facts (what happened, numbers, prices, names, who holds a role, dates) come only from those \
+articles. Never add them from your own knowledge, which is out of date.
+- Analyze, don't just repeat: say why it matters; connect related stories among the articles; \
+when several sources report it, compare how they report it (numbers, emphasis, tone); when the \
+articles span several days, say what changed. Do each only when the articles support it. Your \
+explanation may use general understanding (how markets or politics usually work), but never as \
+a new fact.
+- If the articles don't answer the question, set "covered" to false and say briefly that the \
+stored news doesn't cover it (you may name what the articles are about). Don't guess.
 - The conversation so far is given for context: for a follow-up ("tell me more"), add new \
-details instead of repeating what was already said.
-- If the articles don't answer the question, set "covered" to false and say in one or two \
-sentences that the stored news doesn't cover it (you may name what the articles are about).
-- Keep it short: 2 to 6 sentences, plain words, no headings, no lists unless they help.
+details and analysis instead of repeating what was already said.
+- Keep it readable on a phone: about 3 to 8 sentences, plain words, in one or two short \
+paragraphs; no headings.
 - Don't put article numbers, ids or links in the answer text. In "source_ids", list only the \
 articles whose facts are in your answer, most important first; none if "covered" is false.
 - Reply in the language and tone of the latest message: Khmer, English, or the same mix. It is \
@@ -120,6 +142,7 @@ SCHEMA = {
     "required": ["covered", "answer", "source_ids"],
 }
 
+KINDS = ("chat", "general", "news")
 LANGUAGES = {"en": "English", "km": "Khmer (ភាសាខ្មែរ)"}
 TEXTS = {
     "en": {
@@ -127,12 +150,14 @@ TEXTS = {
         "cap": "That's {cap} messages today, the daily limit. Talk to you tomorrow!",
         "failed": "Sorry, I couldn't answer just now. Please try again later.",
         "nothing": "I couldn't find anything about that in the stored news.",
+        "general": "General knowledge, not from today's news.",
     },
     "km": {
         "sources": "ប្រភព",
         "cap": "ថ្ងៃនេះអ្នកបានផ្ញើ {cap} សារហើយ ដែលជាចំនួនកំណត់ប្រចាំថ្ងៃ។ ជួបគ្នាថ្ងៃស្អែក!",
         "failed": "សូមអភ័យទោស ខ្ញុំមិនអាចឆ្លើយបានទេឥឡូវនេះ។ សូមព្យាយាមម្តងទៀតនៅពេលក្រោយ។",
         "nothing": "ខ្ញុំរកមិនឃើញព័ត៌មានអំពីរឿងនេះក្នុងព័ត៌មានដែលបានរក្សាទុកទេ។",
+        "general": "នេះជាចំណេះដឹងទូទៅ មិនមែនមកពីព័ត៌មានថ្ងៃនេះទេ។",
     },
 }
 
@@ -303,7 +328,7 @@ class Source:
 @dataclass
 class Answer:
     language: str
-    kind: str = ""  # "chat" (a reply, no search) or "news" (searched); "" if it never got there
+    kind: str = ""  # "chat", "general" (replies, no search) or "news"; "" if it never got there
     text: str = ""
     covered: bool | None = None
     sources: list[Source] = field(default_factory=list)  # the ones the answer used
@@ -339,8 +364,11 @@ def build_reply_prompt(message: str, history: list[Turn] = ()) -> str:
 
 
 def build_prompt(question: str, articles: list[Source], history: list[Turn] = ()) -> str:
+    """The articles oldest first (so changes over days read in order), the conversation, the
+    question."""
     blocks = []
-    for a in articles:
+    oldest = datetime.min.replace(tzinfo=LOCAL_TZ)
+    for a in sorted(articles, key=lambda a: (a.published_at or oldest, a.id)):
         when = "?"
         if a.published_at:
             when = a.published_at.astimezone(LOCAL_TZ).strftime("%Y-%m-%d %H:%M")
@@ -390,9 +418,9 @@ def answer(
         route = _call(a, generate, reply_prompt, system, REPLY_SCHEMA, REPLY_OUTPUT_TOKENS, log)
         query = ""
         if route is not None:
-            a.kind = "news" if route.get("kind") == "news" else "chat"
+            a.kind = route.get("kind") if route.get("kind") in KINDS else "chat"
             query = str(route.get("search") or "").strip()[:QUESTION_CHARS] or message
-            if a.kind == "chat":
+            if a.kind != "news":
                 a.text = str(route.get("reply") or "").strip()
                 if not a.text:
                     a.error = "empty reply"
@@ -501,6 +529,8 @@ def render(a: Answer, cap: int = DAILY_MESSAGES) -> str:
     if not a.text:
         return html.escape(t["nothing"], quote=False)
     parts = [html.escape(a.text, quote=False)]
+    if a.kind == "general":
+        parts.append(f"<i>ℹ️ {html.escape(t['general'], quote=False)}</i>")
     if a.sources and a.covered:
         lines = [f"<b>{t['sources']}</b>"]
         for n, s in enumerate(a.sources, 1):
