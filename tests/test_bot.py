@@ -239,7 +239,7 @@ def test_http_request_logs_are_quiet():
 def test_build_app_needs_no_network():
     app = nb.build_app("123:not-a-real-token", OWNER)
     assert app.bot_data["owner"] == OWNER
-    assert len(app.handlers[0]) == 4
+    assert len(app.handlers[0]) == 5
 
 
 # --- chat (task 1.9b) ---------------------------------------------------------------------------
@@ -305,3 +305,24 @@ def test_ask_question_uses_the_shared_memory_and_never_logs_the_text(monkeypatch
     assert seen["memory"] is chat.MEMORY
     assert "kind=chat" in caplog.text and "requests=1" in caplog.text
     assert "private" not in caplog.text
+
+
+def test_forget_clears_the_owners_memory_and_strangers_are_refused():
+    from natalia import chat
+
+    memory = chat.Memory()
+    memory.add(OWNER, chat.Turn("user", "Bitcoin?"), chat.Turn("natalia", "It fell."))
+    memory.add(STRANGER, chat.Turn("user", "hi"))
+    ctx = context()
+    ctx.bot_data["memory"] = memory
+    stranger = update(STRANGER, "/forget")
+    run(nb.handle_forget(stranger, ctx))
+    assert stranger.effective_message.replies == [nb.REFUSAL_TEXT]
+    assert len(memory.get(OWNER)) == 2
+
+    up = update(OWNER, "/forget")
+    run(nb.handle_forget(up, ctx))
+    assert up.effective_message.replies == [nb.FORGET_TEXT]
+    assert memory.get(OWNER) == [] and len(memory.get(STRANGER)) == 1
+    assert ctx.bot.sent == []  # no LLM call, nothing else sent
+    assert "/forget" in nb.START_TEXT

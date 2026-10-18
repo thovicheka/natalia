@@ -27,10 +27,10 @@ How a message is answered:
    answer that says the news doesn't cover the question lists no sources.
 
 Memory: the last MEMORY_MESSAGES messages of each chat (the owner's and Natalia's, each cut to
-MEMORY_CHARS), in the bot's RAM only. Forgotten after MEMORY_IDLE_S without a message, or when
-the bot restarts. Never written to the database or the logs: `chat_questions` keeps counts and
-tokens only. The messages are sent to the LLM provider (Anthropic) to be answered: that is the
-feature, and it's the owner's own text.
+MEMORY_CHARS), in the bot's RAM only. Forgotten after MEMORY_IDLE_S without a message, on /forget,
+or when the bot restarts. Never written to the database or the logs: `chat_questions` keeps
+counts and tokens only. The messages are sent to the LLM provider (Anthropic) to be answered:
+that is the feature, and it's the owner's own text.
 """
 
 from __future__ import annotations
@@ -51,7 +51,7 @@ import psycopg
 from natalia import db, llm
 from natalia.topics import LOCAL_TZ
 
-DAILY_MESSAGES = 20  # per chat per day; ~$0.0001 (small talk) to ~$0.001 each, ≤ ~$0.025 a day
+DAILY_MESSAGES = 50  # per chat per day; ~$0.0001 (small talk) to ~$0.001 each, ≤ ~$0.055 a day
 RETRIEVE_K = 8  # articles given to the LLM
 RETRIEVE_DAYS = 30  # only articles from the last 30 days
 MAX_DISTANCE = 0.25  # cosine distance; farther articles aren't related enough to send
