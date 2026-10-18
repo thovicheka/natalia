@@ -1,8 +1,8 @@
 # Stage 9 — Chat in Telegram (a friendly assistant, and a news expert)
 
-**Tasks:** 1.9b, 1.9c · **Status:** 1.9b ✅ live. 1.9c 🧑 code and tests done; the first real messages (paid, ~$0.0001–0.001 each) need the human's approval, then merge and a bot restart.
+**Tasks:** 1.9b, 1.9c · **Status:** 1.9b ✅ live. 1.9c ✅ code, tests and a real six-message run ($0.003); 🧑 merge and a bot restart.
 
-**What you'll have working by the end:** talk to the bot like a person, in English, Khmer or a mix. Natalia comes across as a normal, friendly person whose specialty is news. Small talk ("yo sup twin") gets a short, friendly reply in the same tone, with no news and no sources. A general question ("how do I fix my car's brakes?") gets a helpful answer from general knowledge, marked as not from the news. Ask about the news and it analyzes the stored articles (why it matters, related stories, how sources differ, what changed), with the sources it actually used (headline as a link, site, date). Current facts (prices, who holds a role, recent events) come only from the stored articles; if they don't cover it, it says so. Follow-ups like "tell me more" work, because it remembers the last 6 messages for 30 minutes. If you seem upset, it answers kindly and briefly. Owner only, at most 20 messages a day.
+**What you'll have working by the end:** talk to the bot like a person, in English, Khmer or a mix. Natalia comes across as a normal, friendly person whose specialty is news. Small talk ("yo sup twin") gets a short, friendly reply in the same tone, with no news and no sources. A general question ("how do I fix my car's brakes?") gets a helpful answer from general knowledge, marked as not from the news. Ask about the news and it analyzes the stored articles (why it matters, related stories, how sources differ, what changed), with the sources it actually used (headline as a link, site, date). Current facts (prices, who holds a role, recent events) come only from the stored articles; if they don't cover it, it says so. Follow-ups like "tell me more" work, because it remembers the last 6 messages for 30 minutes. If you seem upset, it answers kindly and briefly. `/forget` clears what it remembers. Owner only, at most 50 messages a day.
 
 | Placeholder | In this build |
 |---|---|
@@ -48,10 +48,10 @@ owner's message ──► bot: owner? text? under 20 today? ──► count it (
   - **Retrieval:** the search query is embedded with the same local model as the articles. The 8 nearest articles of the last 30 days are kept (cosine distance ≤ 0.25).
   - **The answer:** Haiku gets each article's headline, site, date and its first 1,200 characters, **oldest first**, plus the conversation. Facts come only from the articles; if they don't cover the question it says so instead of guessing. It **analyzes** rather than repeats, each only when the articles support it: why it matters, related stories among the articles, how different sources report it, what changed over the days. Its explanation may use general understanding (how markets usually react), never as a new fact. About 3 to 8 sentences. On a follow-up it adds new detail instead of repeating itself.
   - **Sources only when used (1.9c):** if the answer says the news doesn't cover the question, no sources are shown, whatever ids come back. 1.9b showed 3 sources under a "not covered" answer (bot log, 2026-10-17 16:28: `covered=False sources=3`).
-- **Memory (1.9c):** `Memory` keeps the last 6 messages of each chat (3 of the owner's, 3 of Natalia's; each cut to 600 characters, plus up to 300 characters of the headlines a news answer cited). In the bot's RAM only: forgotten after 30 minutes without a message, or when the bot restarts. Never written to the database or the logs. Failed messages and messages over the cap aren't remembered.
+- **Memory (1.9c):** `Memory` keeps the last 6 messages of each chat (3 of the owner's, 3 of Natalia's; each cut to 600 characters, plus up to 300 characters of the headlines a news answer cited). In the bot's RAM only: forgotten after 30 minutes without a message, on `/forget` (owner only, no LLM call, not counted), or when the bot restarts. Never written to the database or the logs. Failed messages and messages over the cap aren't remembered.
 - **Why a child process for the search:** the embedding model takes ~330 MB. Loaded in the bot, it would stay there all day. In a child (`python -m natalia.chat retrieve`), it's freed a second later. The query goes to the child on stdin, never on its command line (other users can read command lines with `ps`). One message is answered at a time, so only one child runs.
 - **Haiku decides "covered", not a score cut-off.** e5's scores are bunched together: unrelated questions still score 0.79–0.81 against the best article, related ones 0.82–0.89 (measured, step 2). A hard cut-off would drop good articles, so the 0.25 distance only drops junk and the prompt tells Haiku to say when the articles don't answer.
-- **Daily cap:** 20 messages per chat per day (Asia/Phnom_Penh), small talk included. A message counts before anything is sent, so failures count too. Over the cap: "That's 20 messages today, the daily limit. Talk to you tomorrow!"
+- **Daily cap:** 50 messages per chat per day (Asia/Phnom_Penh), small talk included (20 questions in 1.9b; raised to 50 by the human in 1.9c, now that small talk counts). A message counts before anything is sent, so failures count too. Over the cap: "That's 50 messages today, the daily limit. Talk to you tomorrow!"
 - **Privacy:** no message text is stored; `chat_questions` keeps the chat id, time, language, kind (`chat` or `news`), how many articles were retrieved, covered or not, the source ids, and tokens. The messages go to Anthropic to be answered (that's the feature). Strangers still get only "Sorry, this is a private bot."
 - **Cost** (Haiku 5.5: $0.10/M input, $0.50/M output; input tokens from the prompt sizes in step 8, at the 0.42 tokens per character measured in step 4; output tokens guessed):
 
@@ -64,7 +64,7 @@ owner's message ──► bot: owner? text? under 20 today? ──► count it (
   | News, 6 messages remembered | 2 | ~6,600 | ~380 | ~$0.00085 |
   | News in Khmer, 6 Khmer messages remembered | 2 | ~8,000 | ~500 | ~$0.0011 |
 
-  **What memory adds:** the 6 remembered messages are ~1,200 characters (~510 tokens) in English, sent once for chat and general replies and twice for news: **+$0.00005 to +$0.0001 per message**. Khmer takes ~2–3× the tokens, so up to ~+$0.0003. Other changes from 1.9b: the reply-or-search request (~$0.0001 per news question) and longer, analytical news answers (~+200 output tokens, ~+$0.0001). **At the cap:** 20 news questions with full memory ≈ $0.017 a day (Khmer ~$0.022), against $0.01 in 1.9b. A realistic day (5 news questions, 2 general, 10 small talk) ≈ $0.007, about $0.20 a month.
+  **What memory adds:** the 6 remembered messages are ~1,200 characters (~510 tokens) in English, sent once for chat and general replies and twice for news: **+$0.00005 to +$0.0001 per message**. Khmer takes ~2–3× the tokens, so up to ~+$0.0003. Other changes from 1.9b: the reply-or-search request (~$0.0001 per news question) and longer, analytical news answers (~+200 output tokens, ~+$0.0001). **At the cap:** 50 news questions with full memory ≈ $0.043 a day (Khmer ~$0.055), against $0.01 for 1.9b's 20. A realistic day (5 news questions, 2 general, 10 small talk) ≈ $0.007, about $0.20 a month. The real run in step 7 matched these estimates within ~5% for news and small talk.
 
 ## Steps
 
@@ -266,11 +266,97 @@ uv run python -m natalia.chat ask "yo sup twin" "Bitcoin price this week" "tell 
 5. `kind=news`: from the stored articles if they cover it, otherwise "the stored news doesn't cover that", never a guess.
 6. A kind, brief reply with no news.
 
-About $0.003 in all; 6 of today's 20. Then in Telegram, after the merge and `sudo systemctl restart natalia-bot`: a Khmer message, a Khmer–English mix, and a news question the stored articles can't answer (no sources).
+About $0.003 in all; 6 of today's 50. Then in Telegram, after the merge and `sudo systemctl restart natalia-bot`: a Khmer message, a Khmer–English mix, and a news question the stored articles can't answer (no sources).
 
 <details><summary>Example from this build</summary>
 
-Not run yet: waiting for the human's approval of the first real 1.9c call. **Result:** ⏳
+Run on 2026-10-18 with the human's approval (Google News links shortened with `…` here):
+```console
+$ uv run python -m natalia.chat ask "yo sup twin" "Bitcoin price this week" "tell me more" "How do I fix my car's brakes?" "Who is the prime minister of Japan right now?" "ugh today was rough"
+> yo sup twin
+kind=chat, retrieved 0: []
+yo yo! not much, just going through today's headlines. what's up with you?
+covered=None, 0 sources, 1 requests, 1039 in + 43 out tokens, 4.1 s
+
+> Bitcoin price this week
+kind=news, retrieved 8: [2386, 4337, 304, 362, 263, 658, 289, 2326]
+Bitcoin has mostly been stuck in a band of roughly $80,000 to $84,000 this week, and the mood has shifted from August's "extreme greed" to nervous. It started Tuesday near $83,600 after a bounce from $80,953, then slipped below $82,000 on Wednesday after hot US CPI (3.7% year-on-year, core 2.6%) revived bets on a Fed rate hike. On Thursday it dipped as low as about $79,800 on Bitstamp and CoinDesk and Bitcoin Magazine reported it briefly under $80,000, while a KOSPI rout and an AI-stock selloff added pressure. By Friday it was back near $82,000 after Fed Chair Kevin Warsh gave no hint of more hikes and the October hike odds fell to 15%, though Decrypt's analyst still expects a $76,000 to $83,000 range until a clear catalyst shows up. The sources differ a bit on exact lows, but the big picture is consistent: the rate-hike worry is the main driver right now.
+
+<b>Sources</b>
+1. <a href="https://cointelegraph.com/markets/bitcoin-price-steadies-82k-fed-warsh-avoids-rate-hike-hints">Bitcoin price steadies around $82K after Fed’s Warsh avoids rate-hike hints</a> <i>(Cointelegraph · 16 Oct)</i>
+2. <a href="https://bitcoinmagazine.com/markets/bitcoin-price-briefly-dips-below-80000">Bitcoin Briefly Slides Below $80,000 On More Hot Inflation Data</a> <i>(Bitcoin Magazine · 15 Oct)</i>
+3. <a href="https://www.coindesk.com/business/2026/10/15/live-updates-bitcoin-back-under-usd81-000-as-ai-selloff-worsens">Live updates: Bitcoin back under $81,000 as AI selloff worsens</a> <i>(CoinDesk · 15 Oct)</i>
+4. <a href="https://decrypt.co/381008/bitcoin-tests-81000-as-rate-hike-fears-linger-after-hot-inflation-data">Bitcoin Tests $81,000 as Rate Hike Fears Linger After Hot Inflation Data</a> <i>(Decrypt · 15 Oct)</i>
+5. <a href="https://cointelegraph.com/markets/bitcoin-dips-korea-kospi-lowest-close-since-april">Bitcoin dips to $80.1K as KOSPI closes at its lowest since April</a> <i>(Cointelegraph · 15 Oct)</i>
+6. <a href="https://cointelegraph.com/markets/bitcoin-price-dips-yields-surge-as-high-oil-prices-spike-us-cpi-inflation">Bitcoin price dips below $82K as high oil prices spike US CPI inflation</a> <i>(Cointelegraph · 14 Oct)</i>
+7. <a href="https://decrypt.co/380842/bitcoin-shakes-off-spooky-season-jitters">Bitcoin Shakes Off Spooky Season Jitters: Can Bulls Keep It Going?</a> <i>(Decrypt · 13 Oct)</i>
+covered=True, 7 sources, 2 requests, 5671 in + 423 out tokens, 6.2 s
+
+> tell me more
+kind=news, retrieved 8: [280, 2386, 349, 263, 304, 658, 270, 2326]
+Here's the extra picture: the September CPI jump was driven mostly by gasoline, up 9.1% in one month because of the Middle East conflict and oil supply crunch, so the inflation problem is an energy shock rather than broad price creep. Core CPI at 2.6% versus 2.5% expected matters more to the Fed, and bets on an October hike briefly jumped to nearly 50% before cooling to roughly 26-30%. Analysts also see extra pressure from leverage: Ryan Lee of Bitget Research warned traders may still be holding risky leveraged bets that could force more selling if yields rise. Thursday's producer price data, the fastest rise in more than four years, reinforced the view that high prices are sticking around. Meanwhile, Algoz's Stephen Wundke expects bitcoin to stay between $76,000 and $83,000 for the rest of October unless a clear catalyst appears, and HashKey's Tim Sun blames slowing spot ETF and corporate treasury demand more than macro factors. The Fed meets October 27-28, which is the next big event to watch.
+
+<b>Sources</b>
+1. <a href="https://decrypt.co/380950/bitcoin-falls-hot-inflation-fed-hike-odds">Bitcoin Falls as Hot Inflation Puts a Fed Hike Back on the Table</a> <i>(Decrypt · 14 Oct)</i>
+2. <a href="https://cointelegraph.com/markets/bitcoin-price-dips-yields-surge-as-high-oil-prices-spike-us-cpi-inflation">Bitcoin price dips below $82K as high oil prices spike US CPI inflation</a> <i>(Cointelegraph · 14 Oct)</i>
+3. <a href="https://www.coindesk.com/markets/2026/10/15/bitcoin-is-back-below-usd81-000-as-fed-rate-uncertainty-weighs">Bitcoin wilts as Fed rate uncertainty weighs. Kospi plunges 8%</a> <i>(CoinDesk · 15 Oct)</i>
+4. <a href="https://decrypt.co/381008/bitcoin-tests-81000-as-rate-hike-fears-linger-after-hot-inflation-data">Bitcoin Tests $81,000 as Rate Hike Fears Linger After Hot Inflation Data</a> <i>(Decrypt · 15 Oct)</i>
+5. <a href="https://bitcoinmagazine.com/markets/bitcoin-price-briefly-dips-below-80000">Bitcoin Briefly Slides Below $80,000 On More Hot Inflation Data</a> <i>(Bitcoin Magazine · 15 Oct)</i>
+6. <a href="https://www.coindesk.com/business/2026/10/15/live-updates-bitcoin-back-under-usd81-000-as-ai-selloff-worsens">Live updates: Bitcoin back under $81,000 as AI selloff worsens</a> <i>(CoinDesk · 15 Oct)</i>
+7. <a href="https://www.coindesk.com/daybook-us/2026/10/14/here-s-how-analysts-see-u-s-inflation-influencing-bitcoin">Here's how analysts see U.S. inflation influencing bitcoin</a> <i>(CoinDesk · 14 Oct)</i>
+covered=True, 7 sources, 2 requests, 6423 in + 442 out tokens, 5.3 s
+
+> How do I fix my car's brakes?
+kind=general, retrieved 0: []
+Depends on the problem, but a common one is worn brake pads. Check them through the wheel spokes: if the pad material is under about 3 mm thick, or you hear squealing or grinding, they need replacing. Basic pad swap: jack up the car safely on stands, remove the wheel, unbolt the caliper, slide it off (don't let it hang by the hose), swap in new pads, push the piston back, then reassemble and pump the pedal before driving. Bleed the system if the pedal feels spongy. If the pedal sinks to the floor, the car pulls to one side, or you're not sure, get a mechanic to look at it, because brakes are safety critical.
+
+<i>ℹ️ General knowledge, not from today's news.</i>
+covered=None, 0 sources, 1 requests, 1906 in + 232 out tokens, 2.6 s
+
+> Who is the prime minister of Japan right now?
+kind=news, retrieved 8: [4797, 1539, 1354, 2452, 864, 411, 1359, 2465]
+Right now that's Sanae Takaichi. The latest articles call her Japan's Prime Minister, and a Bloomberg piece from October 17 says she plans to attend the APEC leaders summit in China if parliament allows. The Japanese agriculture minister's resignation on October 14 was described as a blow to her, which shows how fragile her cabinet's early weeks have been.
+
+<b>Sources</b>
+1. <a href="https://www.bloomberg.com/news/articles/2026-10-17/japan-s-takaichi-to-attend-apec-in-china-if-parliament-allows">Japan’s Takaichi to Attend APEC in China if Parliament Allows</a> <i>(Bloomberg Markets · 17 Oct)</i>
+2. <a href="https://news.google.com/rss/articles/…">Japan's scandal-hit agriculture minister quits in blow to PM Takaichi - Nikkei Asia</a> <i>(Nikkei Asia Cambodia (Google News) · 14 Oct)</i>
+3. <a href="https://news.google.com/rss/articles/…">Japan farm minister steps down, first for Takaichi cabinet - Reuters</a> <i>(Reuters World (Google News) · 14 Oct)</i>
+covered=True, 3 sources, 2 requests, 5674 in + 183 out tokens, 3.9 s
+
+> ugh today was rough
+kind=chat, retrieved 0: []
+Ugh, sorry it was rough. Want to tell me what happened, or would you rather I just keep you company for a bit?
+covered=None, 0 sources, 1 requests, 1918 in + 59 out tokens, 1.2 s
+```
+The rows in `chat_questions` (id, kind, retrieved, covered, sources, requests, tokens; no text):
+```console
+(196, 'chat',    0, None, 0, 1, 1039,  43)
+(197, 'news',    8, True, 7, 2, 5671, 423)
+(198, 'news',    8, True, 7, 2, 6423, 442)
+(199, 'general', 0, None, 0, 1, 1906, 232)
+(200, 'news',    8, True, 3, 2, 5674, 183)
+(201, 'chat',    0, None, 0, 1, 1918,  59)
+```
+
+| # | Message | Kind | Requests | Tokens in + out | Cost |
+|---|---|---|---|---|---|
+| 1 | yo sup twin | chat | 1 | 1,039 + 43 | $0.00013 |
+| 2 | Bitcoin price this week | news | 2 | 5,671 + 423 | $0.00078 |
+| 3 | tell me more | news | 2 | 6,423 + 442 | $0.00086 |
+| 4 | How do I fix my car's brakes? | general | 1 | 1,906 + 232 | $0.00031 |
+| 5 | Who is the prime minister of Japan right now? | news | 2 | 5,674 + 183 | $0.00066 |
+| 6 | ugh today was rough | chat | 1 | 1,918 + 59 | $0.00022 |
+| | **Total** | | **9** | **22,631 + 1,382** | **$0.0030** |
+
+**Result:** ✅ every message got the expected kind.
+- **Small talk:** answered in the same casual tone, no search, no sources.
+- **Bitcoin:** analyzed rather than listed. It gave the drivers (CPI, Fed hike odds), the mood shift, the range day by day, an analyst's outlook, and said "the sources differ a bit on exact lows".
+- **"tell me more":** got a new search (3 new articles: 280, 349, 270), with new detail (gasoline-driven CPI, leverage, ETF demand, the Fed's 27–28 October meeting) and no repetition.
+- **Brakes:** practical, with safety advice, and ended with the general-knowledge line.
+- **Japan:** a current fact taken from the stored articles (Bloomberg 17 Oct, Reuters and Nikkei 14 Oct), not from memory.
+- **Rough day:** short and kind, with no news. It offered to listen rather than suggesting someone to talk to, which fits a mildly bad day; the "someone they trust" rule is for someone genuinely upset.
+- **Estimates:** within ~5% for small talk and news; the general answer's input was ~25% above (memory had grown by then).
+- ⚠️ **Long source lists:** the Bitcoin answers listed 7 sources each, because they drew on most of the 8 articles. That's correct, but long on a phone. Not changed.
 </details>
 
 ### 8. Prompt sizes for the cost estimate *(free, no LLM)*
