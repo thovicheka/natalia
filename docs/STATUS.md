@@ -13,12 +13,15 @@ $ journalctl -u prefect-server --no-pager -q | grep -A30 "14:08:27.123" | tail -
 ```
 - **Cause:** a version mismatch in `~/projects/lab-runtime`. Prefect 3.8.8 (the latest stable) allows any `sqlalchemy <3.0`, so SQLAlchemy **2.1.4** was installed. 2.1 added a bulk-insert step for ORM properties that have a setter. Prefect's `FlowRun.state` has one, and the scheduler's insert of new runs includes `state`, so every insert fails (`prefect/server/models/deployments.py:1009`). No lab deployment has a schedule, so it only showed up with Natalia's.
 - **Evidence:** 0 scheduled or pending runs on the server; all 9 runs ever made were started by hand (`auto_scheduled=False`, the last on 2026-10-19 05:43 UTC). The deployment itself is fine: active schedule `0 5 * * *` Asia/Phnom_Penh, not paused, `READY`, worker polling. No alert came, because the run never existed, so the flow's failure alert couldn't fire.
-- **Fix (🧑, cloud-ai-lab's code and service, CLAUDE.md rule 9):** pin SQLAlchemy below 2.1 in the lab and restart its Prefect server. Nothing was running at the time of the check, so a restart interrupts nothing.
+- **Fix (🧑, cloud-ai-lab's code and service, CLAUDE.md rule 9):** pin SQLAlchemy below 2.1 in the lab and restart its Prefect server. Restart only when no flow run is active: nothing was running at the first check, but at 14:27 UTC a lab run (`b_km_knnvc_kmpool_samegender_v2`, pool `ksa`) was running, and it was still erroring every minute (Prefect 3.8.8, SQLAlchemy 2.1.4).
 ```bash
 # 1. In cloud-ai-lab (its repo, its own branch and PR; Natalia's agent doesn't edit it):
 cd ~/projects/cloud-ai-lab && uv add "sqlalchemy[asyncio]>=2.0,<2.1"   # locks 2.0.55
 # 2. After merging, on the server:
 git -C ~/projects/lab-runtime pull --ff-only && (cd ~/projects/lab-runtime && uv sync)
+# Before restarting: make sure no flow run is active (a restart can break a running lab job)
+curl -s -X POST http://127.0.0.1:4200/api/flow_runs/filter -H 'content-type: application/json' \
+  -d '{"flow_runs":{"state":{"type":{"any_":["PENDING","RUNNING"]}}}}' | python3 -c 'import json,sys; print(len(json.load(sys.stdin)), "active")'   # expect 0
 sudo systemctl restart prefect-server
 # 3. Check: no new scheduler errors, and natalia-daily's next runs exist
 journalctl -u prefect-server --since "-3min" --no-pager | grep -c "Can't evaluate bulk DML"   # expect 0
