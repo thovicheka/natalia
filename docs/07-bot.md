@@ -2,7 +2,7 @@
 
 **Tasks:** 1.8 · **Status:** 🧑 code and tests done; the bot itself (BotFather, token, chat ID, first message, service) is the human's
 
-**What you'll have working by the end:** Natalia's own Telegram bot (not cloud-ai-lab's alert bot), running as a `systemd` service with long polling. It sends the stored digest to the owner's chat and answers the owner's `/start`, `/help` and `/digest [date]`. Anyone else gets one short refusal and nothing more. The commands make no LLM calls: they read digests that [Stage 6](06-digest.md) stored. Since task 1.9b, any other text from the owner is a question, answered by Haiku from the stored articles ([Stage 9](09-chat.md)); since 1.9c, small talk gets a friendly reply instead, follow-ups work, and `/forget` clears the conversation memory.
+**What you'll have working by the end:** Natalia's own Telegram bot (not cloud-ai-lab's alert bot), running as a `systemd` service with long polling. It sends the stored digest to the owner's chat and answers the owner's `/start`, `/help` and `/digest [date]`. Anyone else gets one short refusal and nothing more. The commands make no LLM calls: they read digests that [Stage 6](06-digest.md) stored. Since task 1.9b, any other text from the owner is a question, answered by Haiku from the stored articles ([Stage 9](09-chat.md)); since 1.9c, small talk gets a friendly reply instead, follow-ups work, and `/forget` clears the conversation memory; since 1.9d, questions about Natalia's own data are answered from the database and "translate that" translates the whole previous answer.
 
 | Placeholder | In this build |
 |---|---|

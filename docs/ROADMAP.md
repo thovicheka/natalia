@@ -40,7 +40,7 @@ Don't swap these without asking the human.
 |---|---|---|
 | Prefect server + worker (lab) | ~300 MB | already running |
 | PostgreSQL | ≤ 250 MB | small `shared_buffers`, few connections |
-| Telegram bot service | ≤ 550 MB (`MemoryMax`) | ~80 MB idle; each news question (1.9b) runs a ~330 MB search child for ~1 s, one at a time; small talk (1.9c) runs none. Conversation memory (1.9c): ≤ 6 × ~0.9 KB per chat |
+| Telegram bot service | ≤ 550 MB (`MemoryMax`) | ~80 MB idle; each news question (1.9b) runs a ~330 MB search child for ~1 s, one at a time; small talk (1.9c) runs none. Conversation memory (1.9c): ≤ 6 × ~0.9 KB per chat; 1.9d also keeps Natalia's replies whole for translations, ≤ ~15 KB per chat |
 | Website service | ≤ 250 MB | Phase 5 |
 | Natalia's Prefect worker + daily flow | ≤ 700 MB (`MemoryMax`) | own cgroup since 1.9. First real run (no embed): **290 MiB peak**, **145 MiB idle** (82 MiB worker + 56 MiB reclaimable cache). With 1.9b's embed step, collect and embed run as child processes: expected peak ~570 MB at the embed step (`MemoryHigh=600M`). |
 
@@ -148,6 +148,17 @@ Goal: every morning at 07:00 the human gets a digest on Telegram: headline, link
   - 🤖 The human's decisions (2026-10-18): cap raised to 50 messages a day; `/forget` clears the conversation memory; the general/news line stays as it is until real use shows mistakes.
   - 🧑 Approve the API use and talk to it.
   - **Done when:** small talk gets a friendly reply with no sources, a general question gets a marked general-knowledge answer, news questions get analyzed, sourced answers, a follow-up works, an uncovered current fact gets "not in the news", and the cap still holds.
+
+- [ ] **1.9d Chat fixes from real use** — 🤖 (🧑 tests it) → `docs/09-chat.md`
+  - The human's Telegram test of 1.9c (2026-10-19, bot log ~12:19 UTC) found five problems.
+  - 🤖 Khmer replies cut off: a Khmer news answer hit max_tokens (thinking 1,132 + output 868 = 2,000) and the owner got "try again later". Give chat enough output room for Khmer (~3–4× the tokens of English) and limit thinking so it can't eat the answer budget. A reply that still stops at max_tokens is retried once with a higher limit, and logged. Test with a fake max_tokens reply. *Done: thinking off for chat (Haiku 5.5 has no thinking budget), 3,000–4,000 output tokens, one retry with twice the room.*
+  - 🤖 Questions about Natalia's own data ("which days do you have news for?", "how many articles today?", "what sources do you use?") are answered from the database (dates with digests and articles, counts per day, the source list), not by article search.
+  - 🤖 Vague follow-ups with no conversation memory ("tell me more" right after `/forget`): ask what the person means instead of searching random articles.
+  - 🤖 Khmer persona: Natalia is female, so she says ចាស (not បាទ) and uses female polite forms.
+  - 🤖 Translations of a previous answer are complete (one dropped the Cambodia–Thailand talks).
+  - 🤖 Keep owner-only, the daily cap and the cost logging. Fakes in tests; ask before any real API call.
+  - 🧑 Approve the real test (~$0.01, `docs/09-chat.md` step 11) and try it in Telegram.
+  - **Done when:** a long Khmer answer arrives whole, data questions get the database's numbers, "tell me more" after `/forget` is asked about, Khmer replies use ចាស, and a translation keeps every part of the answer.
 
 - [ ] **1.10 Document Phase 1** — 🤖 → review and complete Phase 1's stage docs (`01-sources.md` … `08-daily-flow.md`): every step with real output, nothing left only in STATUS.md, README's docs table up to date.
 

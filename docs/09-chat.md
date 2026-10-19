@@ -1,8 +1,10 @@
 # Stage 9 — Chat in Telegram (a friendly assistant, and a news expert)
 
-**Tasks:** 1.9b, 1.9c · **Status:** 1.9b ✅ live. 1.9c ✅ code, tests and a real six-message run ($0.003); 🧑 merge and a bot restart.
+**Tasks:** 1.9b, 1.9c, 1.9d · **Status:** 1.9b and 1.9c ✅ live. 1.9d (fixes from real use) ✅ code and tests, fakes only; 🧑 a real test run (~$0.01, step 11), merge and a bot restart.
 
 **What you'll have working by the end:** talk to the bot like a person, in English, Khmer or a mix. Natalia comes across as a normal, friendly person whose specialty is news. Small talk ("yo sup twin") gets a short, friendly reply in the same tone, with no news and no sources. A general question ("how do I fix my car's brakes?") gets a helpful answer from general knowledge, marked as not from the news. Ask about the news and it analyzes the stored articles (why it matters, related stories, how sources differ, what changed), with the sources it actually used (headline as a link, site, date). Current facts (prices, who holds a role, recent events) come only from the stored articles; if they don't cover it, it says so. Follow-ups like "tell me more" work, because it remembers the last 6 messages for 30 minutes. If you seem upset, it answers kindly and briefly. `/forget` clears what it remembers. Owner only, at most 50 messages a day.
+
+Fixed after real use (1.9d): long Khmer answers are no longer cut off. Questions about Natalia's own data ("which days do you have news for?", "how many articles today?", "what sources do you use?") are answered from the database. "Tell me more" with nothing to follow gets a question back, not a random search. In Khmer she speaks as a woman (ចាស, never បាទ). "Translate that" translates the whole previous answer, with its sources.
 
 | Placeholder | In this build |
 |---|---|
@@ -20,8 +22,8 @@ owner's message ──► bot: owner? text? under 20 today? ──► count it (
                                     │
                                     ▼
    request 1 (small): last 6 messages + the new one ──► JSON {kind, reply, search}
-          │                                   │
-  kind = chat / general                   kind = news
+          │                                   │        (data / translate: see below)
+  kind = chat / general / clarify         kind = news
           │                                   │
           ▼                                   ▼
    reply as written:          child process: embed `search` (local e5) ──► 8 nearest articles, 30 days
@@ -35,6 +37,11 @@ owner's message ──► bot: owner? text? under 20 today? ──► count it (
                               headline links from the database (made-up ids dropped)
           │                                   │
           └──────────► remember both messages (RAM, 30 min) ◄───┘
+
+  kind = data      ──► request 2: facts read from the database now (articles per day,
+                       digests, sources by topic) + the question ──► JSON {answer}; no search
+  kind = translate ──► request 2: Natalia's previous answer, whole + the request
+                       ──► JSON {translation}; shown with that answer's sources
 ```
 - **`natalia/chat.py`**:
   - **Personality (1.9c):** both prompts describe Natalia as a normal, friendly person whose specialty is news: collecting, analyzing and reporting it.
@@ -42,17 +49,22 @@ owner's message ──► bot: owner? text? under 20 today? ──► count it (
     - `chat`: small talk, greetings, jokes, thanks, questions about Natalia. A reply right there: one request, no search.
     - `general`: questions answered from lasting general knowledge (how-to, science, history, advice; "how do I fix my car's brakes?"). A helpful answer right there, then a fixed line: *ℹ️ General knowledge, not from today's news.* (Khmer: *នេះជាចំណេះដឹងទូទៅ មិនមែនមកពីព័ត៌មានថ្ងៃនេះទេ។*). The line is added by the code, so it can't be forgotten.
     - `news`: news and **current facts** (prices, scores, who holds a role now, recent events), or a follow-up on them. The prompt says Haiku's own knowledge of these is out of date, so they are always `news`, even when it thinks it knows. Chat and general replies must not state current facts either.
+    - `clarify` (1.9d): a follow-up with nothing to follow ("tell me more" right after `/forget`), or a message too vague to act on. It asks what they mean (which story or topic) and mentions `/digest`: 1 request, no search. When there is no memory, the prompt says so ("Conversation so far: none…"), so Haiku can tell. Before 1.9d, "tell me more" after `/forget` searched for random articles.
+    - `data` (1.9d): questions about Natalia's own data: which days she has news or digests for, how many articles (today, per day, in total), which sources and topics. `data_facts()` reads the counts from the database (articles collected per day in Asia/Phnom_Penh for the last 30 days, the digests, the 66 enabled sources by topic with paywalled ones marked) and a second request answers from those facts only. No search: an article search can't count.
+    - `translate` (1.9d): "in Khmer please", "translate to English". A second request translates Natalia's previous answer **in full**, told to keep every sentence, story, number and name in order. The reply shows that answer's sources, and keeps the general-knowledge line if it had one. If there's nothing to translate, a fixed question instead. Before 1.9d the translation was written from memory's copy, cut to 600 characters, so the Cambodia–Thailand talks at the end of an answer were dropped.
     For `news` it writes a **standalone search query** instead of a reply, with names filled in from the conversation ("tell me more" after Bitcoin → "Bitcoin price this week"). Without this step, every message was a news search: "yo sup twin" retrieved two Reuters stock pages and a motorbike story (step 2).
   - **Tone and language:** both prompts say to match the latest message: Khmer, English or the same mix, casual or formal, slang if they use it. The script count (`language()`) is only a hint in the prompt ("mostly Khmer") and picks the language of the fixed replies (cap, failure).
+  - **Female persona (1.9d):** every prompt says Natalia is a woman and, in Khmer, says ចាស (or ចាស៎) for "yes" and as the polite particle, refers to herself as ខ្ញុំ (នាងខ្ញុំ when formal), and never uses បាទ or ខ្ញុំបាទ (what men say). A Khmer reply said បាទ in real use.
+  - **Room for Khmer, thinking off (1.9d):** every chat request runs with Haiku's thinking off (`thinking: disabled`; Haiku 5.5 has no thinking budget, so off is the only hard limit) and room for a Khmer reply, which takes ~3–4× the tokens of English: 4,000 output tokens for a news answer or a translation, 3,000 for the reply-or-search request and a data answer. Before, a Khmer news answer thought 1,132 tokens at effort "low", wrote 868 tokens of JSON, hit the 2,000 limit, and the owner got "try again later" (step 10). A reply that still stops at the limit is **asked again once with twice the room** and logged (`chat: reply stopped at max_tokens …`, `retries=1` in the bot's log line); a second cut-off is a "sorry".
   - **Upset:** the reply prompt says to be kind and brief, with no jokes and no news, and to gently suggest talking to someone they trust; if they might hurt themselves or are in danger, to urge contacting local emergency services or someone near them. Nothing about it is logged: such a message is `kind=chat` like any other.
   - **Retrieval:** the search query is embedded with the same local model as the articles. The 8 nearest articles of the last 30 days are kept (cosine distance ≤ 0.25).
   - **The answer:** Haiku gets each article's headline, site, date and its first 1,200 characters, **oldest first**, plus the conversation. Facts come only from the articles; if they don't cover the question it says so instead of guessing. It **analyzes** rather than repeats, each only when the articles support it: why it matters, related stories among the articles, how different sources report it, what changed over the days. Its explanation may use general understanding (how markets usually react), never as a new fact. About 3 to 8 sentences. On a follow-up it adds new detail instead of repeating itself.
   - **Sources only when used (1.9c):** if the answer says the news doesn't cover the question, no sources are shown, whatever ids come back. 1.9b showed 3 sources under a "not covered" answer (bot log, 2026-10-17 16:28: `covered=False sources=3`).
-- **Memory (1.9c):** `Memory` keeps the last 6 messages of each chat (3 of the owner's, 3 of Natalia's; each cut to 600 characters, plus up to 300 characters of the headlines a news answer cited). In the bot's RAM only: forgotten after 30 minutes without a message, on `/forget` (owner only, no LLM call, not counted), or when the bot restarts. Never written to the database or the logs. Failed messages and messages over the cap aren't remembered.
+- **Memory (1.9c):** `Memory` keeps the last 6 messages of each chat (3 of the owner's, 3 of Natalia's; each cut to 600 characters for the prompts, plus up to 300 characters of the headlines a news answer cited). Since 1.9d, Natalia's replies are also kept whole, with their sources, for `translate` (up to ~4 KB each in Khmer, so ≤ ~15 KB per chat). In the bot's RAM only: forgotten after 30 minutes without a message, on `/forget` (owner only, no LLM call, not counted), or when the bot restarts. Never written to the database or the logs. Failed messages and messages over the cap aren't remembered.
 - **Why a child process for the search:** the embedding model takes ~330 MB. Loaded in the bot, it would stay there all day. In a child (`python -m natalia.chat retrieve`), it's freed a second later. The query goes to the child on stdin, never on its command line (other users can read command lines with `ps`). One message is answered at a time, so only one child runs.
 - **Haiku decides "covered", not a score cut-off.** e5's scores are bunched together: unrelated questions still score 0.79–0.81 against the best article, related ones 0.82–0.89 (measured, step 2). A hard cut-off would drop good articles, so the 0.25 distance only drops junk and the prompt tells Haiku to say when the articles don't answer.
 - **Daily cap:** 50 messages per chat per day (Asia/Phnom_Penh), small talk included (20 questions in 1.9b; raised to 50 by the human in 1.9c, now that small talk counts). A message counts before anything is sent, so failures count too. Over the cap: "That's 50 messages today, the daily limit. Talk to you tomorrow!"
-- **Privacy:** no message text is stored; `chat_questions` keeps the chat id, time, language, kind (`chat` or `news`), how many articles were retrieved, covered or not, the source ids, and tokens. The messages go to Anthropic to be answered (that's the feature). Strangers still get only "Sorry, this is a private bot."
+- **Privacy:** no message text is stored; `chat_questions` keeps the chat id, time, language, kind (`chat`, `general`, `clarify`, `news`, `data` or `translate`), how many articles were retrieved, covered or not, the source ids, and tokens. The messages go to Anthropic to be answered (that's the feature). Strangers still get only "Sorry, this is a private bot."
 - **Cost** (Haiku 5.5: $0.10/M input, $0.50/M output; input tokens from the prompt sizes in step 8, at the 0.42 tokens per character measured in step 4; output tokens guessed):
 
   | Message | Requests | Input tokens | Output tokens | Cost |
@@ -65,6 +77,19 @@ owner's message ──► bot: owner? text? under 20 today? ──► count it (
   | News in Khmer, 6 Khmer messages remembered | 2 | ~8,000 | ~500 | ~$0.0011 |
 
   **What memory adds:** the 6 remembered messages are ~1,200 characters (~510 tokens) in English, sent once for chat and general replies and twice for news: **+$0.00005 to +$0.0001 per message**. Khmer takes ~2–3× the tokens, so up to ~+$0.0003. Other changes from 1.9b: the reply-or-search request (~$0.0001 per news question) and longer, analytical news answers (~+200 output tokens, ~+$0.0001). **At the cap:** 50 news questions with full memory ≈ $0.043 a day (Khmer ~$0.055), against $0.01 for 1.9b's 20. A realistic day (5 news questions, 2 general, 10 small talk) ≈ $0.007, about $0.20 a month. The real run in step 7 matched these estimates within ~5% for news and small talk.
+
+  **After 1.9d** (estimates from the prompt sizes in step 10, same rates). The reply-or-search prompt grew from ~2,400 to ~3,700 characters (+~550 tokens, +$0.00006 per message) with the three new kinds and the persona. Turning thinking off saves the 340–1,132 thinking tokens a news answer used (up to −$0.0006). A Khmer answer now gets the output it needs instead of failing.
+
+  | Message (1.9d) | Requests | Input tokens | Output tokens | Cost |
+  |---|---|---|---|---|
+  | Small talk or `clarify`, no memory | 1 | ~1,600 | ~60 | ~$0.0002 |
+  | News, English, no memory | 2 | ~6,300 | ~350 | ~$0.0008 |
+  | News in Khmer, 6 Khmer messages remembered | 2 | ~10,000 | ~2,000 | ~$0.002 |
+  | … the same, cut off once and asked again | 3 | ~18,000 | ~6,000 | ~$0.005 (worst: ~$0.007) |
+  | Data question (days, counts, sources) | 2 | ~2,900 | ~150 (English) – 1,000 (Khmer list) | ~$0.0004–0.0008 |
+  | Translate a 1,500-character answer into Khmer | 2 | ~3,100 | ~1,800 | ~$0.0012 |
+
+  **At the cap:** 50 Khmer news questions ≈ $0.10 a day; a realistic day stays under $0.01.
 
 ## Steps
 
@@ -384,10 +409,79 @@ answer prompt, no history: 10907; full history: 12107
 ```bash
 uv run pytest -q tests/test_chat.py tests/test_bot.py
 ```
-*What it does:* language detection; HTML escaping and numbered sources; the prompts, with the conversation oldest first;
+*What it does (1.9d adds):* a reply cut off at max_tokens asked again once with twice the room, same prompt, every request's tokens counted, the retry logged; a second cut-off failing after one retry (no third request; the row records 3 requests and the error); thinking off on every chat request; the female persona in all four prompts and no បាទ in the fixed Khmer texts; "tell me more" with no memory answered as `clarify` with no search, and the prompt saying there's no conversation; a data question answered from the facts with no search (stored as `kind=data`); the facts counting articles by local day (00:30 in Phnom Penh is the previous day in UTC), listing digests and marking paywalled sources; a translation getting the whole previous answer (over 600 characters) and keeping its sources, with the Khmer "Sources" header; a translated general answer keeping its note; nothing to translate answered with a fixed question; the LLM wrapper sending `thinking: disabled` at effort low.
+
+*What it does (1.9b–1.9c):* language detection; HTML escaping and numbered sources; the prompts, with the conversation oldest first;
 small talk answered in one request with no search and no sources (stored as `kind=chat`); a general question answered in one request with the "not from today's news" line (English and Khmer, stored as `kind=general`), and no such line on small talk; an unknown kind treated as chat; the news prompt's rules (facts only from the articles, analysis, don't guess); articles listed oldest first; an empty reply is a "sorry"; a news query falling back to the message; "not covered" listing no sources even when ids come back; the reply prompt's tone, language and distress rules; memory (last N per chat, chats kept apart, forgotten when idle, long messages cut, failures and over-cap messages not remembered, nothing in the database); a follow-up whose prompts carry the previous exchange and its headlines; the bot's log line without the message's text; answers from retrieved articles only with made-up ids dropped; a Khmer question asking for a Khmer answer; no LLM call when nothing is retrieved; the row recorded without the question's text; the cap (failures count, nothing runs over the cap, resets the next local day); retrieval and LLM failures and a non-JSON reply becoming a "sorry"; the date and distance filter on real pgvector rows; the question passed on stdin, never in the child's arguments; in the bot, typing then an HTML reply, long answers split, photos and unknown commands, a stranger never reaching chat. Retrieval and the LLM are fakes; database tests roll back.
 
+### 10. Fixes from real use (1.9d) *(free: fakes and the local database, no LLM)*
+The owner's Telegram test on 2026-10-19 found five problems. The bot log shows the first one: a Khmer news question thought 1,132 tokens at effort "low", wrote 868 tokens of an answer, and stopped at the 2,000-token limit before the JSON was complete:
+```console
+$ journalctl -u natalia-bot --since "12:19" --until "12:21" --no-pager | grep -E "natalia\.(llm|bot)"
+… natalia.llm INFO llm {'at': '2026-10-19T12:19:58+00:00', 'purpose': 'chat', 'model': 'claude-haiku-5-5', 'input_tokens': 4391, 'output_tokens': 868, 'thinking_tokens': 1132, 'error': ''}
+… natalia.bot INFO chat: reply isn't the JSON asked for (stop reason max_tokens)
+… natalia.bot INFO chat: kind=news lang=km retrieved=8 covered=None sources=0 requests=2 tokens=5861+2049 error=reply isn't the JSON asked for (stop reason max_tokens)
+… natalia.llm INFO llm {'at': '2026-10-19T12:20:46+00:00', 'purpose': 'chat', 'model': 'claude-haiku-5-5', 'input_tokens': 1703, 'output_tokens': 674, 'thinking_tokens': 0, 'error': ''}
+… natalia.bot INFO chat: kind=chat lang=en retrieved=0 covered=None sources=0 requests=1 tokens=1703+674
+```
+The last two lines are the translation that dropped the Cambodia–Thailand talks. It was answered as `chat` from memory's copy of the previous answer, which is cut to 600 characters. That answer had been 280 output tokens, about 1,100 characters.
+
+| Problem | Cause | Fix |
+|---|---|---|
+| Khmer answer cut off, "try again later" | thinking (1,132) + answer shared a 2,000-token limit; Khmer needs ~3–4× the tokens | thinking off for chat, 4,000 tokens for answers, one retry with twice the room |
+| "Which days do you have news for?" searched articles | no kind for questions about Natalia's own data | `data`: counts from the database |
+| "Tell me more" after `/forget` searched random articles | nothing told Haiku there was no conversation | the prompt says "Conversation so far: none…"; `clarify` asks back |
+| Khmer replies said បាទ | no gender in the prompts | the female persona in every prompt |
+| Translation dropped the end of the answer | translated from memory's 600-character copy | `translate`: the whole previous answer, kept in memory |
+
+The reply-or-search prompt with no memory, from a dry run:
+```console
+$ uv run python -m natalia.chat ask "tell me more" --dry-run | head -3
+Conversation so far: none. This is the start of the conversation: there are no earlier messages to refer to (they may have been forgotten).
+
+New message: tell me more
+```
+The facts a data question is answered from, read from the real database:
+```console
+$ uv run python -c "…print(chat.data_facts(conn, datetime.now(LOCAL_TZ)))"
+Natalia's stored data, as of 2026-10-19 19:34 (Asia/Phnom_Penh):
+- Articles: 3,431 stored, collected from 2026-10-15 to 2026-10-17.
+- Articles collected today (2026-10-19): 0.
+- Days with articles in the last 30 days (articles collected that day): 2026-10-15: 1,863; 2026-10-16: 751; 2026-10-17: 817.
+- Morning digests (the top stories per topic, built at 05:00) in the last 30 days: 2026-10-16 (en, 45 stories); 2026-10-17 (en, 45 stories).
+- Chat answers search the articles of the last 30 days.
+- Sources: 66 feeds in 9 topics (* = paywalled: headline and excerpt only):
+  cambodia (11): Cambodia Investment Review, CamboJA News, DAP News, Khmer Times, Kohsantepheap Daily, Phnom Penh Post, Post Khmer, RFA Khmer, The Cambodia Daily, The Guardian Cambodia, VOD English
+  crypto (6): Bitcoin Magazine, Bloomberg Crypto *, CoinDesk, Cointelegraph, Decrypt, The Block
+  …
+  world-politics (7): Al Jazeera, BBC News World, DW World, Foreign Affairs *, France 24, NPR World, The Guardian World
+```
+1,812 characters (~760 tokens). Prompt sizes (system + prompt, characters):
+```console
+reply system 3571 news system 1769 data system 1022 translate system 763
+reply prompt, no history: 3737
+translate prompt, 1,500-char answer: 2342
+```
+```console
+$ uv run pytest -q
+225 passed in 23.44s
+$ uv run ruff check . && uv run ruff format --check .
+All checks passed!
+47 files already formatted
+```
+**Result:** ✅ all five fixes are in the code and covered by tests with a fake LLM. No real request has been sent yet (step 11).
+⚠️ The facts show no articles collected on 2026-10-18 or 2026-10-19, so "how many articles today?" will truthfully say 0. The Prefect deployment `natalia-daily` has an active 05:00 schedule, but no run has been created since the manual one on 2026-10-17 (outside this task; see STATUS).
+
+### 11. 🧑 Try the fixes for real *(paid: ~$0.01, ~13 Haiku requests)*
+```bash
+uv run python -m natalia.chat ask "តើមានព័ត៌មានអ្វីខ្លះអំពីកម្ពុជា និងថៃ?" "translate to English" "which days do you have news for?" "how many articles today?" "what sources do you use?"
+uv run python -m natalia.chat ask "tell me more"
+```
+*What it does:* sends 6 messages as the owner (they count toward today's 50). The first command is one conversation: a Khmer news answer (expect female forms, no cut-off), its full English translation with the same sources, and three data answers. The second starts with no memory, so "tell me more" should get a question back. Expected: ~13 requests, ~25,000 input + ~5,000 output tokens, **~$0.005–0.01**.
+Then in Telegram, after the bot restart: a long Khmer news question, "translate that", `/forget`, then "tell me more".
+
 ## Verify it worked
+- (1.9d) A long Khmer news question gets a whole answer (the bot log shows `retries=0`, or `retries=1` and no error); "translate that" gives the whole previous answer with its sources; "which days do you have news for?" lists days and counts from the database; "tell me more" after `/forget` asks what you mean; Khmer replies use ចាស, never បាទ.
 - "hi" gets a friendly reply with no sources; "how do I fix my car's brakes?" gets advice marked as general knowledge; a news question gets an analysis with linked sources, in its language; "tell me more" continues it; a current fact the articles don't cover gets "not in the stored news".
 - `SELECT kind, count(*), sum(requests), sum(input_tokens), sum(output_tokens) FROM chat_questions WHERE asked_at > now() - interval '1 day' GROUP BY kind;` matches what you sent.
 - `systemctl show natalia-bot -p MemoryPeak` stays under 550M.

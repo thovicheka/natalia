@@ -303,7 +303,7 @@ def test_ask_question_uses_the_shared_memory_and_never_logs_the_text(monkeypatch
     with caplog.at_level(logging.INFO, logger="natalia.bot"):
         assert nb.ask_question("my private words", OWNER) == "Hey! 👋"
     assert seen["memory"] is chat.MEMORY
-    assert "kind=chat" in caplog.text and "requests=1" in caplog.text
+    assert "kind=chat" in caplog.text and "requests=1 retries=0" in caplog.text
     assert "private" not in caplog.text
 
 
