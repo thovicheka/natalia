@@ -4,6 +4,11 @@ Live progress for agent work. The agent updates this after every step and pushes
 
 ## Summary
 
+**Update, 2026-10-19 (branch `task/1.9d-real-test` from `origin/main` at c7d2826; 1.9d merged as PR #21, runtime pulled, bot restarted 12:55 UTC): 1.9d's real test passed. All five fixes work. 14 Haiku requests, 32,475 input + 2,468 output tokens, $0.0045, all with 0 thinking tokens and no retries.**
+- Khmer news answer arrived whole (708 output tokens). The English translation kept all five parts, Cambodia–Thailand talks included. Data answers match the database, in English and Khmer. "tell me more" and "cotinue from previous message" after `/forget` got a question back. The Khmer reply said ចាស៎ នាងខ្ញុំ. Full output: `docs/09-chat.md` step 11.
+
+**Human must:** merge `task/1.9d-real-test` (docs only). Still open: the daily run hasn't been created since 2026-10-17 (item 3 below); the worker's `MemoryPeak` after a daily run (1.9b).
+
 **Run of 2026-10-19 (task 1.9d, branch `task/1.9d-chat-fixes` from `origin/main` at 07c6e4b, 1.9c merged as PR #20): done in code and tests. Fakes only: 0 real API calls, $0.** It fixes the five problems from the owner's Telegram test (bot log ~12:19 UTC):
 1. **Khmer answer cut off:** thinking (1,132 tokens) + answer shared a 2,000-token limit. Chat now runs with **thinking off** (Haiku 5.5 has no thinking budget, so off is the only hard limit) and gets **4,000 output tokens** for answers and translations (3,000 for the first request and data answers). A reply still cut off is **asked again once with twice the room**, and logged (`retries=1` in the bot's log line). Tested with a fake max_tokens reply.
 2. **Data questions** ("which days?", "how many articles today?", "which sources?"): new kind `data`, answered from counts read from the database, not by search.
@@ -14,9 +19,9 @@ Live progress for agent work. The agent updates this after every step and pushes
 - **Cost:** small talk ~$0.0002 (+$0.00006, bigger first prompt); Khmer news ~$0.002 (it failed before); worst with a retry ~$0.007. At the cap ~$0.10 a day; a realistic day under $0.01.
 
 **Human must:**
-1. **Approve the real test** (~13 Haiku requests, **~$0.005–0.01**; counts 6 messages toward today's 50). Command in `docs/09-chat.md` step 11:
+1. ✅ *Done: run 2026-10-19, $0.0038 (update above).* **Approve the real test** (~13 Haiku requests, **~$0.005–0.01**; counts 6 messages toward today's 50). Command in `docs/09-chat.md` step 11:
    `uv run python -m natalia.chat ask "តើមានព័ត៌មានអ្វីខ្លះអំពីកម្ពុជា និងថៃ?" "translate to English" "which days do you have news for?" "how many articles today?" "what sources do you use?"`, then `uv run python -m natalia.chat ask "tell me more"`.
-2. Review and merge `task/1.9d-chat-fixes`; then `git -C ~/projects/natalia-runtime pull --ff-only origin main` and `sudo systemctl restart natalia-bot`. No new packages, no migration.
+2. ✅ *Done: PR #21, runtime at c7d2826, bot restarted 12:55 UTC.* Review and merge `task/1.9d-chat-fixes`; then `git -C ~/projects/natalia-runtime pull --ff-only origin main` and `sudo systemctl restart natalia-bot`. No new packages, no migration.
 3. ⚠️ Found while testing (not changed): **no articles were collected on 2026-10-18 or 2026-10-19.** The Prefect deployment `natalia-daily` is active (`0 5 * * *`, not paused), and `natalia-worker` is active, but Prefect has created **no flow run** since the manual `radiant-inchworm` on 2026-10-17. Worth checking in the Prefect UI (is the server's scheduler service running?). Until then, "how many articles today?" will truthfully say 0.
 
 **Run of 2026-10-18 (task 1.9c, branch `task/1.9c-natural-chat` from `origin/main` at 65130ae, 1.9b merged): done. The real six-message test passed: 9 Haiku requests, 22,631 input + 1,382 output tokens, $0.0030.**
@@ -1639,7 +1644,7 @@ All checks passed!
 
 ## 1.9d — Chat fixes from real use
 - **Branch:** `task/1.9d-chat-fixes`, from `origin/main` at 07c6e4b (1.9c merged as PR #20).
-- **State:** ✅ code, tests and docs done. No real API call yet; 🧑 approve the real test, merge, restart the bot.
+- **State:** ✅ done and live: merged as PR #21, bot restarted 2026-10-19 12:55 UTC, real test passed ($0.0045). Results recorded on `task/1.9d-real-test`.
 - **Why:** the owner's Telegram test on 2026-10-19 (~12:19 UTC):
   ```console
   $ journalctl -u natalia-bot --since "12:19" --until "12:21" --no-pager | grep -E "natalia\.(llm|bot)"
@@ -1672,7 +1677,22 @@ All checks passed!
   ✅ New: max_tokens retry (fake cut-off reply, then a whole one; same prompt, twice the limit, logged), two cut-offs fail after one retry, thinking off on every chat request, the persona in all prompts, `clarify` with no memory, `data` answered without search, `data_facts` local-day counts/digests/paywalled marks, a full translation with sources (an answer over 600 characters), a translated general answer keeping its note, nothing to translate, and `thinking: disabled` in the Anthropic request.
 - **Free checks:** a dry run shows the "Conversation so far: none" line; `data_facts()` on the real database lists 3 collection days (15–17 Oct), 2 digests and the 66 sources in 1,812 characters (full output in `docs/09-chat.md` step 10).
 - **Docs:** `docs/09-chat.md` (kinds, room and retry, persona, memory, 1.9d cost table, steps 10–11, verify), `docs/decisions.md` (new entry), `docs/ROADMAP.md` (1.9d, memory row), `docs/07-bot.md`, `docs/STYLE.md`, `README.md`.
-- **Next (🧑):** approve the real test (~$0.005–0.01, command in the summary above), merge, pull the runtime, restart the bot, then in Telegram: a long Khmer news question, "translate that", `/forget`, "tell me more".
+- **Real test** (run by the human, 2026-10-19; command in `docs/09-chat.md` step 11):
+  ```console
+  $ uv run python -m natalia.chat ask "តើមានព័ត៌មានអ្វីខ្លះអំពីកម្ពុជា និងថៃ?" "translate to English" "which days do you have news for?" "how many articles today?" "what sources do you use?"
+  kind=news … covered=True, 3 sources, 2 requests, 6997 in + 750 out tokens, 9.9 s
+  kind=translate … covered=True, 3 sources, 2 requests, 3612 in + 262 out tokens, 4.0 s
+  kind=data … 2 requests, 5641 in + 142 out tokens, 4.2 s
+  kind=data … 2 requests, 5905 in + 81 out tokens, 3.2 s
+  kind=data … 2 requests, 4187 in + 633 out tokens, 4.9 s
+  $ uv run python -m natalia.chat ask "tell me more"
+  kind=clarify … 1 requests, 1511 in + 67 out tokens, 3.7 s
+  $ journalctl -u natalia-bot --since "12:55" --no-pager | grep "chat:"   # Telegram, after the restart
+  … chat: kind=data lang=km retrieved=0 covered=None sources=0 requests=2 retries=0 tokens=3107+456
+  … chat: kind=clarify lang=en retrieved=0 covered=None sources=0 requests=1 retries=0 tokens=1515+77
+  ```
+  ✅ Every kind as expected. The Khmer answer was whole in one request, and the translation kept all five parts (the Cambodia–Thailand talks included). The data answers matched the database, the Khmer one included. "tell me more" and "cotinue from previous message" after `/forget` were asked about. The Khmer reply said "ចាស៎ នាងខ្ញុំ". 0 thinking tokens, 0 retries. **Cost: 14 requests, 32,475 + 2,468 tokens, $0.0045** (estimate ~$0.005–0.01; the Khmer answer needed 750 output tokens, not ~2,000).
+  ⚠️ Not changed: a source link was `news.google.com`, from the dropped "Google News Cambodia" feed, whose old articles are still stored.
 
 ## 1.9c — Natural chat
 - **Branch:** `task/1.9c-natural-chat`, from `origin/main` at 65130ae (1.9b merged as PR #18).

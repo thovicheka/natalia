@@ -1,6 +1,6 @@
 # Stage 9 — Chat in Telegram (a friendly assistant, and a news expert)
 
-**Tasks:** 1.9b, 1.9c, 1.9d · **Status:** 1.9b and 1.9c ✅ live. 1.9d (fixes from real use) ✅ code and tests, fakes only; 🧑 a real test run (~$0.01, step 11), merge and a bot restart.
+**Tasks:** 1.9b, 1.9c, 1.9d · **Status:** 1.9b, 1.9c and 1.9d ✅ live. 1.9d's real test passed (12 requests, $0.0038, step 11), merged as PR #21, bot restarted 2026-10-19 12:55 UTC.
 
 **What you'll have working by the end:** talk to the bot like a person, in English, Khmer or a mix. Natalia comes across as a normal, friendly person whose specialty is news. Small talk ("yo sup twin") gets a short, friendly reply in the same tone, with no news and no sources. A general question ("how do I fix my car's brakes?") gets a helpful answer from general knowledge, marked as not from the news. Ask about the news and it analyzes the stored articles (why it matters, related stories, how sources differ, what changed), with the sources it actually used (headline as a link, site, date). Current facts (prices, who holds a role, recent events) come only from the stored articles; if they don't cover it, it says so. Follow-ups like "tell me more" work, because it remembers the last 6 messages for 30 minutes. If you seem upset, it answers kindly and briefly. `/forget` clears what it remembers. Owner only, at most 50 messages a day.
 
@@ -472,13 +472,84 @@ All checks passed!
 **Result:** ✅ all five fixes are in the code and covered by tests with a fake LLM. No real request has been sent yet (step 11).
 ⚠️ The facts show no articles collected on 2026-10-18 or 2026-10-19, so "how many articles today?" will truthfully say 0. The Prefect deployment `natalia-daily` has an active 05:00 schedule, but no run has been created since the manual one on 2026-10-17 (outside this task; see STATUS).
 
-### 11. 🧑 Try the fixes for real *(paid: ~$0.01, ~13 Haiku requests)*
+### 11. 🧑 Try the fixes for real *(paid: ~$0.01 estimated; $0.0045 measured)*
 ```bash
 uv run python -m natalia.chat ask "តើមានព័ត៌មានអ្វីខ្លះអំពីកម្ពុជា និងថៃ?" "translate to English" "which days do you have news for?" "how many articles today?" "what sources do you use?"
 uv run python -m natalia.chat ask "tell me more"
 ```
 *What it does:* sends 6 messages as the owner (they count toward today's 50). The first command is one conversation: a Khmer news answer (expect female forms, no cut-off), its full English translation with the same sources, and three data answers. The second starts with no memory, so "tell me more" should get a question back. Expected: ~13 requests, ~25,000 input + ~5,000 output tokens, **~$0.005–0.01**.
 Then in Telegram, after the bot restart: a long Khmer news question, "translate that", `/forget`, then "tell me more".
+
+<details><summary>Example from this build</summary>
+
+Run by the human on 2026-10-19 (~12:46 UTC). Replies as printed: Telegram HTML, so `&amp;` is `&` in the chat. One long Google News link is shortened here.
+```console
+$ uv run python -m natalia.chat ask "តើមានព័ត៌មានអ្វីខ្លះអំពីកម្ពុជា និងថៃ?" "translate to English" "which days do you have news for?" "how many articles today?" "what sources do you use?"
+
+> តើមានព័ត៌មានអ្វីខ្លះអំពីកម្ពុជា និងថៃ?
+kind=news, retrieved 8: [997, 508, 994, 983, 1944, 585, 986, 2364]
+ព័ត៌មានថ្មីៗអំពីកម្ពុជា និងថៃភាគច្រើនទាក់ទងនឹងជម្លោះព្រំដែន។ នៅថ្ងៃទី១៤ ខែតុលា នៅអង្គការសហប្រជាជាតិ តំណាងថៃបានចោទកម្ពុជាថាជាអ្នកផ្ដើមជម្លោះ និងដាក់មីនថ្មី ប៉ុន្តែលោក កែ សុវណ្ណ បានបដិសេធយ៉ាងដាច់អហង្ការ ហើយបានលើកឡើងថាកងទ័ពថៃបាញ់ប្រហារលើទីតាំងយោធាកម្ពុជាកាលពីខែឧសភា ឆ្នាំ២០២៥។ ខ្ញុំយល់ថាការប្រកែកគ្នាតាមសម្ដីបែបនេះនៅតែបន្ត ហើយភាគីទាំងពីរមានកំណែខុសគ្នាខ្លាំងអំពីអ្នកផ្ដើមជម្លោះ។ ចំណែកនាយករដ្ឋមន្ត្រី ហ៊ុន ម៉ាណែត បាននិយាយនៅកិច្ចប្រជុំ CICA នៅអាស៊ែបៃហ្សង់ថា បទពិសោធជម្លោះព្រំដែនថ្មីៗនេះបានពង្រឹងការជឿជាក់ថាសន្តិភាពមិនកើតឡើងដោយឯកឯង។ បន្ថែមពីនេះ ការពិភាក្សាព្រំដែនជាលើកទីពីរនៅក្រុម UNCLOS បានចាប់ផ្ដើមកាលពីថ្ងៃទី១៥ ខែតុលា។
+
+<b>ប្រភព</b>
+1. <a href="https://postkhmer.com/national/news/954639">សង្គ្រាមពាក្យសម្ដី កម្ពុជា-ថៃ បន្តនៅអង្គការសហប្រជាជាតិ ជុំវិញជម្លោះព្រំដែន</a> <i>(Post Khmer · 15 Oct)</i>
+2. <a href="https://dap-news.com/national/2026/10/16/639044">នាយករដ្ឋមន្រ្តី ៖ បទពិសោធថ្មី របស់កម្ពុជាផ្ទាល់ ពង្រឹងការជឿជាក់ថា សន្តិភាពមិនមែនមកដោយឯកឯង</a> <i>(DAP News · 16 Oct)</i>
+3. <a href="https://news.google.com/rss/articles/CBMi…">UNCLOS commission wraps up day one of second Cambodia-Thailand talks - Khmer Times</a> <i>(Google News Cambodia · 15 Oct)</i>
+covered=True, 3 sources, 2 requests, 6997 in + 750 out tokens, 9.9 s
+
+> translate to English
+kind=translate, retrieved 0: []
+News recently about Cambodia and Thailand mostly concerns the border dispute. On October 14, at the United Nations, the Thai representative accused Cambodia of starting the conflict and laying new landmines, but Kae Sovann flatly denied this, and raised that Thai troops fired on Cambodian military positions in May 2025. I think this kind of back-and-forth will continue, and the two sides hold very different accounts of who started the conflict. As for Prime Minister Hun Manet, he said at the CICA meeting in Azerbaijan that the experience of these recent border clashes has strengthened the conviction that peace does not happen on its own. In addition, the second round of border discussions in the UNCLOS group began on October 15.
+
+<b>Sources</b>
+1. … (the same three sources, headlines as published)
+covered=True, 3 sources, 2 requests, 3612 in + 262 out tokens, 4.0 s
+
+> which days do you have news for?
+kind=data, retrieved 0: []
+I have news for three days: 2026-10-15 with 1,863 articles, 2026-10-16 with 751 articles, and 2026-10-17 with 817 articles. I have no articles collected today yet. Morning digests exist for 2026-10-16 and 2026-10-17, each with 45 English stories. Chat answers search the last 30 days of articles.
+covered=None, 0 sources, 2 requests, 5641 in + 142 out tokens, 4.2 s
+
+> how many articles today?
+kind=data, retrieved 0: []
+So far today, 2026-10-19, I have 0 articles collected. My stored articles are from 2026-10-15 to 2026-10-17, with 3,431 in total.
+covered=None, 0 sources, 2 requests, 5905 in + 81 out tokens, 3.2 s
+
+> what sources do you use?
+kind=data, retrieved 0: []
+I use 66 feeds across 9 topics. Cambodia (11): Cambodia Investment Review, CamboJA News, DAP News, Khmer Times, … World politics (7): Al Jazeera, BBC News World, DW World, Foreign Affairs*, France 24, NPR World, The Guardian World. (* = paywalled, so I only get the headline and excerpt for those.)
+covered=None, 0 sources, 2 requests, 4187 in + 633 out tokens, 4.9 s
+
+$ uv run python -m natalia.chat ask "tell me more"
+
+> tell me more
+kind=clarify, retrieved 0: []
+Happy to, but I'm not sure which topic you mean yet. Which story or subject would you like more on? You can also send /digest for today's top stories.
+covered=None, 0 sources, 1 requests, 1511 in + 67 out tokens, 3.7 s
+```
+Then in Telegram, after the merge and the bot restart (12:55 UTC):
+```text
+Owner:   តើអ្នកអាចរាយបញ្ជីប្រាប់ខ្ញុំបានទេថា តើមានព័ត៌មានសម្រាប់ថ្ងៃណាខ្លះនៅពេលនេះ?
+Natalia: ចាស៎ នាងខ្ញុំអាចប្រាប់បាន។ ថ្ងៃដែលមានព័ត៌មានក្នុងកំណត់ត្រា៖ ថ្ងៃទី១៥ តុលា ២០២៦ មានអត្ថបទ ១,៨៦៣ ថ្ងៃទី១៦ តុលា ២០២៦ មានអត្ថបទ ៧៥១ ថ្ងៃទី១៧ តុលា ២០២៦ មានអត្ថបទ ៨១៧ ហើយថ្ងៃនេះ ១៩ តុលា ២០២៦ មិនទាន់មានអត្ថបទទេ។ សរុបមាន ៣,៤៣១ អត្ថបទ។ សម្រាប់សេចក្តីសង្ខេបពេលព្រឹក មានតែថ្ងៃទី១៦ និងថ្ងៃទី១៧ តុលា ២០២៦ ដែលមានទាំងពីរ (ថ្ងៃទីមួយមាន ៤៥ ព័ត៌មាន និងថ្ងៃទីពីរក៏ ៤៥ ដែរ)។
+Owner:   /forget
+Natalia: Done, I've forgotten our recent messages. Fresh start!
+Owner:   cotinue from previous message
+Natalia: Hi! I don't have a previous message to continue from, since this is the start of our chat. Could you tell me which story or topic you mean? You can also send /digest to see today's top stories.
+```
+```console
+$ journalctl -u natalia-bot --since "12:55" --no-pager | grep "chat:"
+… natalia.bot INFO chat: kind=data lang=km retrieved=0 covered=None sources=0 requests=2 retries=0 tokens=3107+456
+… natalia.bot INFO chat: kind=clarify lang=en retrieved=0 covered=None sources=0 requests=1 retries=0 tokens=1515+77
+$ grep '"purpose": "chat"' logs/llm-usage.jsonl | tail -12   # the CLI run: 11 requests, every one "thinking_tokens": 0
+```
+**Result:** ✅ all five fixes work for real.
+- **Khmer answer whole:** 708 output tokens in one request, no retry needed. The same kind of question failed before at 868 + 1,132 thinking. All 14 requests used 0 thinking tokens.
+- **Translation complete:** all five parts of the Khmer answer are in the English one, in order: the border dispute, the UN exchange (14 Oct) with the denial and the May 2025 shooting, the analysis, Hun Manet at CICA, and the UNCLOS talks (15 Oct). Same three sources; their headlines stay as published.
+- **Data:** the counts match the database (step 10). It says 0 articles today, which is true (the open daily-run problem in STATUS). The source list is grouped by topic with paywalled ones marked; the Khmer data question was answered in Khmer.
+- **Clarify:** "tell me more" (CLI, no memory) and "cotinue from previous message" after `/forget` (Telegram, typo included) got a question back, 1 request, no search.
+- **Persona:** ចាស៎ នាងខ្ញុំ… in the Khmer reply; no បាទ anywhere.
+- **Cost:** CLI 11 requests, 27,853 input + 1,935 output tokens = **$0.0038**; Telegram 3 requests, 4,622 + 533 = $0.0007. Total **$0.0045**, under the ~$0.005–0.01 estimate: the Khmer answer needed 750 output tokens, not the ~2,000 estimated.
+- ⚠️ Source 3 is a `news.google.com` link from the "Google News Cambodia" feed. That feed was dropped (decisions.md, robots.txt), but its old articles are still stored and can be cited. Not changed.
+</details>
 
 ## Verify it worked
 - (1.9d) A long Khmer news question gets a whole answer (the bot log shows `retries=0`, or `retries=1` and no error); "translate that" gives the whole previous answer with its sources; "which days do you have news for?" lists days and counts from the database; "tell me more" after `/forget` asks what you mean; Khmer replies use ចាស, never បាទ.
