@@ -125,6 +125,35 @@ cd ~/projects/natalia-runtime && .venv/bin/prefect deployment schedule resume na
 ```
 *What it does:* from now on the flow runs every day at 05:00 Asia/Phnom_Penh. To stop it: `prefect deployment schedule pause natalia-daily/natalia-daily <schedule-id>`.
 
+*Verify:* the next run is already waiting. If this lists nothing, the schedule isn't creating runs (see below):
+```bash
+curl -s -X POST http://127.0.0.1:4200/api/flow_runs/filter -H 'content-type: application/json' \
+  -d '{"flow_runs":{"state":{"type":{"any_":["SCHEDULED"]}}}}' | python3 -c "import json,sys; [print(r['name'], r['expected_start_time']) for r in json.load(sys.stdin)]"
+```
+
+<details><summary>Example from this build</summary>
+
+The schedule was turned on 2026-10-17 14:08 UTC. ❌ No run came on the 18th or the 19th, and no alert, because no run was ever created. The deployment looked fine (active, not paused, `READY`, worker polling), but there were 0 scheduled runs on the server. The lab server's log showed the scheduler failing every minute from 14:08:27 on:
+```console
+$ journalctl -u prefect-server --no-pager -q | grep -A30 "14:08:27.123" | tail -3
+… sqlalchemy/ext/hybrid.py", line 1851, in prop
+…     raise exc.InvalidRequestError(
+… sqlalchemy.exc.InvalidRequestError: Can't evaluate bulk DML statement; please supply a bulk_dml decorated function
+```
+*Error:* the scheduler can't insert scheduled runs. *Cause:* the lab's Prefect 3.8.8 allows any `sqlalchemy <3.0`, so 2.1.4 was installed. SQLAlchemy 2.1 refuses the bulk insert of `FlowRun` rows that carry `state`, a property with a setter. No lab deployment had a schedule before, so it went unnoticed. *Fix (cloud-ai-lab's side, by the human):* pin SQLAlchemy below 2.1 there and restart the server:
+```bash
+# 1. In cloud-ai-lab (its repo, its own branch and PR; Natalia's agent doesn't edit it):
+cd ~/projects/cloud-ai-lab && uv add "sqlalchemy[asyncio]>=2.0,<2.1"   # locks 2.0.55
+# 2. After merging, on the server:
+git -C ~/projects/lab-runtime pull --ff-only && (cd ~/projects/lab-runtime && uv sync)
+sudo systemctl restart prefect-server
+# 3. Check: no new scheduler errors, and natalia-daily's next runs exist
+journalctl -u prefect-server --since "-3min" --no-pager | grep -c "Can't evaluate bulk DML"   # expect 0
+curl -s -X POST http://127.0.0.1:4200/api/flow_runs/filter -H 'content-type: application/json' \
+  -d '{"flow_runs":{"state":{"type":{"any_":["SCHEDULED"]}}}}' | python3 -c "import json,sys; [print(r['name'], r['expected_start_time']) for r in json.load(sys.stdin)]"
+```
+</details>
+
 ### 6. Tests
 ```bash
 uv run pytest -q tests/test_daily.py tests/test_daily_flow.py

@@ -4,6 +4,30 @@ Live progress for agent work. The agent updates this after every step and pushes
 
 ## Summary
 
+**Update, 2026-10-19: why the daily run never ran (read-only diagnosis, nothing changed, $0).** The lab's Prefect server has never created a scheduled run. Its scheduler has failed every minute since 2026-10-17 14:08 UTC, the moment `natalia-daily`'s schedule was turned on (2,813 errors so far):
+```console
+$ journalctl -u prefect-server --no-pager -q | grep -A30 "14:08:27.123" | tail -3
+… sqlalchemy/ext/hybrid.py", line 1851, in prop
+…     raise exc.InvalidRequestError(
+… sqlalchemy.exc.InvalidRequestError: Can't evaluate bulk DML statement; please supply a bulk_dml decorated function
+```
+- **Cause:** a version mismatch in `~/projects/lab-runtime`. Prefect 3.8.8 (the latest stable) allows any `sqlalchemy <3.0`, so SQLAlchemy **2.1.4** was installed. 2.1 added a bulk-insert step for ORM properties that have a setter. Prefect's `FlowRun.state` has one, and the scheduler's insert of new runs includes `state`, so every insert fails (`prefect/server/models/deployments.py:1009`). No lab deployment has a schedule, so it only showed up with Natalia's.
+- **Evidence:** 0 scheduled or pending runs on the server; all 9 runs ever made were started by hand (`auto_scheduled=False`, the last on 2026-10-19 05:43 UTC). The deployment itself is fine: active schedule `0 5 * * *` Asia/Phnom_Penh, not paused, `READY`, worker polling. No alert came, because the run never existed, so the flow's failure alert couldn't fire.
+- **Fix (🧑, cloud-ai-lab's code and service, CLAUDE.md rule 9):** pin SQLAlchemy below 2.1 in the lab and restart its Prefect server. Nothing was running at the time of the check, so a restart interrupts nothing.
+```bash
+# 1. In cloud-ai-lab (its repo, its own branch and PR; Natalia's agent doesn't edit it):
+cd ~/projects/cloud-ai-lab && uv add "sqlalchemy[asyncio]>=2.0,<2.1"   # locks 2.0.55
+# 2. After merging, on the server:
+git -C ~/projects/lab-runtime pull --ff-only && (cd ~/projects/lab-runtime && uv sync)
+sudo systemctl restart prefect-server
+# 3. Check: no new scheduler errors, and natalia-daily's next runs exist
+journalctl -u prefect-server --since "-3min" --no-pager | grep -c "Can't evaluate bulk DML"   # expect 0
+curl -s -X POST http://127.0.0.1:4200/api/flow_runs/filter -H 'content-type: application/json' \
+  -d '{"flow_runs":{"state":{"type":{"any_":["SCHEDULED"]}}}}' | python3 -c "import json,sys; [print(r['name'], r['expected_start_time']) for r in json.load(sys.stdin)]"
+```
+- **Then:** the next run is created for 05:00 Asia/Phnom_Penh (22:00 UTC). Missed days aren't back-filled. To catch up now, one manual run (`docs/08-daily-flow.md` step 4, ~9 requests, ~$0.01) collects what the feeds still hold and builds today's digest.
+- **Idea, not done:** an alert for a run that never happens (e.g. "no digest by 06:00") would have caught this on the first morning.
+
 **Update, 2026-10-19 (branch `task/1.9d-real-test` from `origin/main` at c7d2826; 1.9d merged as PR #21, runtime pulled, bot restarted 12:55 UTC): 1.9d's real test passed. All five fixes work. 14 Haiku requests, 32,475 input + 2,468 output tokens, $0.0045, all with 0 thinking tokens and no retries.**
 - Khmer news answer arrived whole (708 output tokens). The English translation kept all five parts, Cambodia–Thailand talks included. Data answers match the database, in English and Khmer. "tell me more" and "cotinue from previous message" after `/forget` got a question back. The Khmer reply said ចាស៎ នាងខ្ញុំ. Full output: `docs/09-chat.md` step 11.
 
@@ -22,7 +46,7 @@ Live progress for agent work. The agent updates this after every step and pushes
 1. ✅ *Done: run 2026-10-19, $0.0038 (update above).* **Approve the real test** (~13 Haiku requests, **~$0.005–0.01**; counts 6 messages toward today's 50). Command in `docs/09-chat.md` step 11:
    `uv run python -m natalia.chat ask "តើមានព័ត៌មានអ្វីខ្លះអំពីកម្ពុជា និងថៃ?" "translate to English" "which days do you have news for?" "how many articles today?" "what sources do you use?"`, then `uv run python -m natalia.chat ask "tell me more"`.
 2. ✅ *Done: PR #21, runtime at c7d2826, bot restarted 12:55 UTC.* Review and merge `task/1.9d-chat-fixes`; then `git -C ~/projects/natalia-runtime pull --ff-only origin main` and `sudo systemctl restart natalia-bot`. No new packages, no migration.
-3. ⚠️ Found while testing (not changed): **no articles were collected on 2026-10-18 or 2026-10-19.** The Prefect deployment `natalia-daily` is active (`0 5 * * *`, not paused), and `natalia-worker` is active, but Prefect has created **no flow run** since the manual `radiant-inchworm` on 2026-10-17. Worth checking in the Prefect UI (is the server's scheduler service running?). Until then, "how many articles today?" will truthfully say 0.
+3. *Diagnosed: the lab's Prefect scheduler fails on SQLAlchemy 2.1 (update at the top).* ⚠️ Found while testing (not changed): **no articles were collected on 2026-10-18 or 2026-10-19.** The Prefect deployment `natalia-daily` is active (`0 5 * * *`, not paused), and `natalia-worker` is active, but Prefect has created **no flow run** since the manual `radiant-inchworm` on 2026-10-17. Worth checking in the Prefect UI (is the server's scheduler service running?). Until then, "how many articles today?" will truthfully say 0.
 
 **Run of 2026-10-18 (task 1.9c, branch `task/1.9c-natural-chat` from `origin/main` at 65130ae, 1.9b merged): done. The real six-message test passed: 9 Haiku requests, 22,631 input + 1,382 output tokens, $0.0030.**
 - **Reply or search:** one small Haiku request decides the kind:
