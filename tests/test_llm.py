@@ -207,6 +207,31 @@ def test_anthropic_without_schema_or_system_sends_neither():
         "x", model="m", system=None, json_schema=None, temperature=0.3, max_output_tokens=64
     )
     assert "system" not in msgs.kwargs and "format" not in msgs.kwargs["output_config"]
+    assert "thinking" not in msgs.kwargs  # adaptive, the model's default
+
+
+def test_anthropic_thinking_off_is_sent_as_disabled_at_low_effort():
+    msgs = FakeMessages(claude_reply("OK", thinking=0))
+    r = anthropic_backend(msgs).generate(
+        "x",
+        model="m",
+        system=None,
+        json_schema=None,
+        temperature=0.3,
+        max_output_tokens=64,
+        thinking=False,
+    )
+    assert msgs.kwargs["thinking"] == {"type": "disabled"}
+    assert msgs.kwargs["output_config"]["effort"] == "low"  # "disabled" 400s at xhigh/max
+    assert r.thinking_tokens == 0
+
+
+def test_generate_passes_thinking_to_the_client():
+    fake = FakeProvider(llm.Result(text="ok", model="m"), llm.Result(text="ok", model="m"))
+    llm.use_client(fake)
+    llm.generate("p", thinking=False)
+    llm.generate("p")
+    assert [kw["thinking"] for _, kw in fake.calls] == [False, True]
 
 
 def test_anthropic_errors_become_provider_errors():

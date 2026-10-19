@@ -1,4 +1,4 @@
-"""Chat (tasks 1.9b, 1.9c): language, the daily cap, reply-or-search, memory, retrieval, the
+"""Chat (tasks 1.9b, 1.9c, 1.9d): language, the daily cap, reply-or-search, memory, retrieval, the
 answer and its sources. No LLM, no model: retrieval and the LLM are fakes; the database parts run
 in a rolled-back transaction."""
 
@@ -53,7 +53,8 @@ def chat_reply(text):
 
 
 class FakeLLM:
-    """Replies in order, one per request: a dict (sent as JSON), a raw string, or an error."""
+    """Replies in order, one per request: a dict (sent as JSON), a raw string, an llm.Result
+    (sent as is), or an error."""
 
     def __init__(self, *replies, error=None):
         self.replies, self.error, self.calls = list(replies), error, []
@@ -63,6 +64,8 @@ class FakeLLM:
         if self.error:
             raise self.error
         reply = self.replies.pop(0)
+        if isinstance(reply, llm.Result):
+            return reply
         return llm.Result(
             text=reply if isinstance(reply, str) else json.dumps(reply),
             model="fake-haiku",
@@ -96,7 +99,7 @@ def ask(conn, question="How is Zebracoin doing?", hits=(), fake=None, **kw):
         retrieve=kw.pop("retrieve", fake_retrieve(list(hits))),
         generate=fake or FakeLLM(NEWS, news_answer()),
         now=kw.pop("now", NOW),
-        log=lambda *_: None,
+        log=kw.pop("log", lambda *_: None),
         **kw,
     )
 
@@ -151,7 +154,7 @@ def test_prompts_carry_the_conversation_oldest_first():
     src = chat.Source(7, "Title", "u", "Site", NOW, text="x")
     q = chat.build_prompt("tell me more", [src], history)
     assert q.index("[7] Title") < q.index("Them: Bitcoin?") < q.index("Question: tell me more")
-    assert chat.build_reply_prompt("hi") == "New message: hi"
+    assert chat.build_reply_prompt("hi") == chat.NO_CONVERSATION + "New message: hi"
 
 
 # --- answering --------------------------------------------------------------------------------
@@ -238,8 +241,10 @@ def test_retrieval_failure_is_an_answer_with_an_error(scratch, articles):
 
 
 def test_a_reply_that_isnt_json_is_an_error(scratch, articles):
-    a = ask(scratch, hits=[(articles[0], 0.1)], fake=FakeLLM("not json"))
+    fake = FakeLLM("not json")
+    a = ask(scratch, hits=[(articles[0], 0.1)], fake=fake)
     assert "isn't the JSON" in a.error and a.kind == ""
+    assert len(fake.calls) == 1 and a.retries == 0  # only a cut-off reply is asked again
     b = ask(scratch, hits=[(articles[0], 0.1)], fake=FakeLLM(NEWS, "[1, 2]"))
     assert "isn't the JSON" in b.error and b.sources == []
 
@@ -255,7 +260,8 @@ def test_dry_run_records_nothing_and_calls_no_llm(scratch, articles):
         dry_run=True,
         log=lines.append,
     )
-    assert fake.calls == [] and lines[0] == "New message: q" and lines[1].startswith("Articles:")
+    assert fake.calls == [] and lines[0].endswith("New message: q")
+    assert lines[1].startswith("Articles:")
     assert chat.asked_today(scratch, OWNER, NOW) == 0
 
 
@@ -496,3 +502,185 @@ def test_retrieve_failure_and_timeout_raise_chat_error():
 
     with pytest.raises(chat.ChatError, match="took over"):
         chat.retrieve("q", run=slow)
+
+
+# --- fixes from real use (task 1.9d) ------------------------------------------------------------
+
+
+def cut_off(text='{"covered": true, "answer": "ចម្លើយ', output_tokens=None):
+    """A reply that stopped at max_tokens: incomplete JSON."""
+    return llm.Result(
+        text=text,
+        model="fake-haiku",
+        input_tokens=4391,
+        output_tokens=output_tokens or chat.MAX_OUTPUT_TOKENS,
+        requests=1,
+        stop_reason="max_tokens",
+    )
+
+
+def test_a_reply_cut_off_at_max_tokens_is_asked_again_once_with_more_room(scratch, articles):
+    a1 = articles[0]
+    full = "ចាស ចម្លើយពេញលេញ។ " * 50
+    fake, lines = FakeLLM(NEWS, cut_off(), news_answer(full.strip(), [a1])), []
+    a = ask(
+        scratch,
+        "តម្លៃ Zebracoin ថ្ងៃនេះ?",
+        hits=[(a1, 0.1)],
+        fake=fake,
+        log=lines.append,
+    )
+    assert (a.error, a.text, a.retries, a.requests) == ("", full.strip(), 1, 3)
+    assert [s.id for s in a.sources] == [a1]
+    limits = [kw["max_output_tokens"] for _, kw in fake.calls]
+    assert limits == [
+        chat.REPLY_OUTPUT_TOKENS,
+        chat.MAX_OUTPUT_TOKENS,
+        chat.MAX_OUTPUT_TOKENS * chat.RETRY_FACTOR,
+    ]
+    assert fake.calls[1][0] == fake.calls[2][0]  # the same prompt, more room
+    assert a.input_tokens == 900 + 4391 + 900  # every request is counted
+    assert any("stopped at max_tokens" in line for line in lines)  # logged
+
+
+def test_a_reply_cut_off_twice_fails_after_one_retry(scratch, articles):
+    fake = FakeLLM(NEWS, cut_off(), cut_off())
+    a = ask(scratch, hits=[(articles[0], 0.1)], fake=fake)
+    assert "stop reason max_tokens" in a.error and a.retries == 1 and len(fake.calls) == 3
+    assert chat.render(a) == chat.TEXTS["en"]["failed"]
+    row = scratch.execute(
+        "SELECT requests, error FROM chat_questions WHERE chat_id = %s", (OWNER,)
+    ).fetchone()
+    assert row[0] == 3 and "max_tokens" in row[1]
+
+
+def test_every_chat_request_runs_with_thinking_off_and_room_for_khmer(scratch, articles):
+    fake = FakeLLM(NEWS, news_answer())
+    ask(scratch, hits=[(articles[0], 0.1)], fake=fake)
+    assert [kw["thinking"] for _, kw in fake.calls] == [False, False]
+    # 868 output tokens held less than half of a Khmer answer in real use (2026-10-19)
+    assert chat.MAX_OUTPUT_TOKENS >= 4000 and chat.REPLY_OUTPUT_TOKENS >= 3000
+    assert chat.TRANSLATE_OUTPUT_TOKENS >= 4000
+
+
+def test_natalia_speaks_khmer_as_a_woman_in_every_prompt():
+    for system in (chat.REPLY_SYSTEM, chat.SYSTEM, chat.DATA_SYSTEM, chat.TRANSLATE_SYSTEM):
+        assert "You are a woman" in system and "ចាស" in system
+        assert "Never use បាទ or ខ្ញុំបាទ" in system
+    for t in chat.TEXTS["km"].values():
+        assert "បាទ" not in t
+
+
+def test_a_follow_up_with_no_conversation_is_asked_about_not_searched(scratch, articles):
+    assert "nothing it could refer to" in chat.REPLY_SYSTEM and '"clarify"' in chat.REPLY_SYSTEM
+    question = "Which story do you mean? Tell me a topic, or try /digest for today's top stories."
+    fake = FakeLLM({"kind": "clarify", "reply": question, "search": ""})
+    retrieve = fake_retrieve([(articles[0], 0.1)])
+    a = ask(scratch, "tell me more", retrieve=retrieve, fake=fake, memory=chat.Memory())
+    assert (a.kind, a.text, a.sources, a.requests) == ("clarify", question, [], 1)
+    assert retrieve.asked == []
+    assert "Conversation so far: none" in fake.calls[0][0]
+    assert chat.render(a) == question  # no note, no sources
+
+
+def test_a_data_question_is_answered_from_the_database_not_a_search(scratch, articles):
+    fake = FakeLLM({"kind": "data", "reply": "", "search": ""}, {"answer": "3 days."})
+    retrieve = fake_retrieve([(articles[0], 0.1)])
+    a = ask(scratch, "Which days do you have news for?", retrieve=retrieve, fake=fake)
+    assert (a.kind, a.text, a.sources, a.requests, a.error) == ("data", "3 days.", [], 2, "")
+    assert retrieve.asked == []
+    prompt, kw = fake.calls[1]
+    assert prompt.startswith("Facts:\nNatalia's stored data, as of 2026-10-17 09:00")
+    assert prompt.endswith("Question: Which days do you have news for?")
+    assert kw["json_schema"] is chat.DATA_SCHEMA and kw["thinking"] is False
+    assert "only the facts given" in kw["system"]
+    assert chat.render(a) == "3 days."
+    row = scratch.execute("SELECT kind FROM chat_questions WHERE chat_id = %s", (OWNER,)).fetchone()
+    assert row == ("data",)
+
+
+def test_data_facts_count_articles_per_local_day_and_list_digests_and_sources(scratch):
+    src = scratch.execute(
+        "INSERT INTO sources (name, topic, feed_url, paywalled) VALUES"
+        " ('Zebra Times', 'crypto', 'https://facts.test/feed', true) RETURNING id"
+    ).fetchone()[0]
+    # 2030-03-02 00:30 in Phnom Penh is still 2030-03-01 in UTC: counted on the local day
+    times = [
+        datetime(2030, 3, 1, 17, 30, tzinfo=UTC),
+        datetime(2030, 3, 2, 3, 0, tzinfo=LOCAL_TZ),
+        datetime(2030, 3, 3, 8, 0, tzinfo=LOCAL_TZ),
+    ]
+    ids = [
+        scratch.execute(
+            """INSERT INTO articles (source_id, url, title, title_norm, language, collected_at)
+               VALUES (%s, %s, %s, %s, 'en', %s) RETURNING id""",
+            (src, f"https://facts.test/{i}", f"Fact {i}", f"fact {i}", t),
+        ).fetchone()[0]
+        for i, t in enumerate(times)
+    ]
+    d = scratch.execute(
+        "INSERT INTO digests (digest_date, language) VALUES ('2030-03-02', 'en') RETURNING id"
+    ).fetchone()[0]
+    scratch.execute(
+        "INSERT INTO digest_items (digest_id, topic, position, article_id) VALUES"
+        " (%s, 'crypto', 1, %s), (%s, 'crypto', 2, %s)",
+        (d, ids[0], d, ids[1]),
+    )
+    facts = chat.data_facts(scratch, datetime(2030, 3, 3, 12, 0, tzinfo=LOCAL_TZ))
+    assert facts.startswith("Natalia's stored data, as of 2030-03-03 12:00 (Asia/Phnom_Penh):")
+    assert "Articles collected today (2030-03-03): 1." in facts
+    assert "(articles collected that day): 2030-03-02: 2; 2030-03-03: 1." in facts
+    assert "2030-03-02 (en, 2 stories)." in facts
+    assert "Zebra Times *" in facts and "paywalled" in facts
+    assert f"last {chat.RETRIEVE_DAYS} days" in facts
+
+
+def test_translate_uses_the_whole_previous_answer_and_keeps_its_sources(scratch, articles):
+    memory, a1, a2 = chat.Memory(), articles[0], articles[1]
+    long_answer = "Zebracoin rose. " * 40 + "Cambodia and Thailand resumed border talks."
+    ask(
+        scratch,
+        "What's new?",
+        hits=[(a1, 0.1), (a2, 0.1)],
+        memory=memory,
+        fake=FakeLLM(NEWS, news_answer(long_answer, [a1, a2])),
+    )
+    assert len(long_answer) > chat.MEMORY_CHARS  # the prompts' copy is cut...
+    khmer = "ចាស Zebracoin បានឡើង។ កម្ពុជា និងថៃ បានបន្តកិច្ចចរចាព្រំដែន។"
+    fake = FakeLLM({"kind": "translate", "reply": "", "search": ""}, {"translation": khmer})
+    retrieve = fake_retrieve([])
+    a = ask(scratch, "translate to Khmer", retrieve=retrieve, fake=fake, memory=memory)
+    prompt, kw = fake.calls[1]
+    assert long_answer in prompt  # ...but the translation gets all of it
+    assert prompt.endswith("Request: translate to Khmer")
+    assert kw["json_schema"] is chat.TRANSLATE_SCHEMA and "complete" in kw["system"]
+    assert "Don't summarize, shorten, merge, add or leave out anything" in kw["system"]
+    assert (a.kind, a.language, a.text, a.requests) == ("translate", "km", khmer, 2)
+    assert [s.id for s in a.sources] == [a1, a2] and retrieve.asked == []
+    out = chat.render(a)
+    assert out.startswith(khmer) and "<b>ប្រភព</b>" in out and "https://chat.test/0" in out
+    assert memory.get(OWNER)[-1].full == khmer  # it can be translated back
+
+
+def test_translating_a_general_answer_keeps_its_note(scratch, articles):
+    memory = chat.Memory()
+    ask(
+        scratch,
+        "How do brakes work?",
+        memory=memory,
+        fake=FakeLLM({"kind": "general", "reply": "Pads press on discs.", "search": ""}),
+    )
+    a = ask(
+        scratch,
+        "ជាភាសាខ្មែរ",
+        memory=memory,
+        fake=FakeLLM({"kind": "translate", "reply": "", "search": ""}, {"translation": "ចាស ..."}),
+    )
+    assert a.translated_kind == "general" and a.sources == []
+    assert chat.TEXTS["km"]["general"] in chat.render(a)
+
+
+def test_translate_with_nothing_to_translate_asks_instead(scratch, articles):
+    fake = FakeLLM({"kind": "translate", "reply": "", "search": ""})
+    a = ask(scratch, "translate that", fake=fake, memory=chat.Memory())
+    assert (a.kind, a.text, a.requests) == ("clarify", chat.TEXTS["en"]["no_previous"], 1)

@@ -16,10 +16,12 @@ Commands (owner only): /start, /digest (yesterday's and today's digests, or /dig
 for one day), /help. They read stored digests: no LLM call. Task 2.2 adds /today and the
 per-topic commands. `send_text` is the daily flow's alert to the owner (task 1.9).
 
-Chat (tasks 1.9b, 1.9c, owner only): any other text message is answered by Haiku
+Chat (tasks 1.9b, 1.9c, 1.9d, owner only): any other text message is answered by Haiku
 (natalia/chat.py): small talk gets a friendly reply, news questions an answer from the stored
-articles with sources. The last few messages are remembered in RAM so follow-ups work. One or two
-LLM requests per message, ~$0.0001–0.001, at most 50 messages a day. /forget clears the memory.
+articles with sources, questions about Natalia's own data an answer from the database, and
+"translate that" a full translation. The last few messages are remembered in RAM so follow-ups
+work. One to three LLM requests per message, ~$0.0001–0.002, at most 50 messages a day. /forget
+clears the memory.
 Questions are answered one at a time, so only one retrieval process (~330 MB) runs at once.
 """
 
@@ -328,13 +330,15 @@ def ask_question(message: str, chat_id: int) -> str:
     with db.connect(autocommit=True) as conn:
         a = chat.answer(conn, message, chat_id, memory=chat.MEMORY, log=log.info)
     log.info(
-        "chat: kind=%s lang=%s retrieved=%d covered=%s sources=%d requests=%d tokens=%d+%d%s",
+        "chat: kind=%s lang=%s retrieved=%d covered=%s sources=%d requests=%d retries=%d"
+        " tokens=%d+%d%s",
         a.kind or "-",
         a.language,
         len(a.retrieved),
         a.covered,
         len(a.sources),
         a.requests,
+        a.retries,
         a.input_tokens,
         a.output_tokens,
         " over cap" if a.over_cap else (f" error={a.error[:120]}" if a.error else ""),

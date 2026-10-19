@@ -117,7 +117,9 @@ class AnthropicClient:
         self._anthropic = anthropic
         self._client = anthropic.Anthropic(api_key=key, max_retries=0, timeout=120.0)
 
-    def generate(self, prompt, *, model, system, json_schema, temperature, max_output_tokens):
+    def generate(
+        self, prompt, *, model, system, json_schema, temperature, max_output_tokens, thinking=True
+    ):
         # `temperature` is not sent: Haiku 5.5 rejects any non-default sampling value (400).
         # Effort "low" keeps the adaptive thinking short: summaries don't need much.
         output_config: dict = {"effort": "low"}
@@ -126,6 +128,11 @@ class AnthropicClient:
         kwargs = {}
         if system:
             kwargs["system"] = system
+        if not thinking:
+            # Haiku 5.5 has no thinking budget (budget_tokens answers 400); "disabled" is the only
+            # hard limit, accepted at effort low to high. Chat uses it (task 1.9d): at "low",
+            # one Khmer answer still thought 1,132 tokens and ran out of room for the reply.
+            kwargs["thinking"] = {"type": "disabled"}
         a = self._anthropic
         try:
             resp = self._client.messages.create(
@@ -181,8 +188,10 @@ class GeminiClient:
             raise LLMError("GEMINI_API_KEY is not set (environment or .env)")
         self._client = genai.Client(api_key=key)
 
-    def generate(self, prompt, *, model, system, json_schema, temperature, max_output_tokens):
-        from google.genai import errors, types
+    def generate(
+        self, prompt, *, model, system, json_schema, temperature, max_output_tokens, thinking=True
+    ):
+        from google.genai import errors, types  # `thinking`: Gemini already thinks minimally
 
         config = types.GenerateContentConfig(
             system_instruction=system,
@@ -272,13 +281,16 @@ def generate(
     model: str | None = None,
     temperature: float = 0.3,
     max_output_tokens: int = 4096,
+    thinking: bool = True,
     purpose: str = "",
     sleep=time.sleep,
 ) -> Result:
     """Send `prompt` to the LLM and return its reply with token counts.
 
     `json_schema`: ask for JSON matching it (parse `Result.text` with json.loads). `purpose`
-    names the call in the usage log. `model`: default, the provider's pinned model. Retries
+    names the call in the usage log. `model`: default, the provider's pinned model.
+    `thinking=False` turns the model's thinking off, so all of `max_output_tokens` is left for
+    the reply (Claude; Gemini ignores it). Retries
     rate-limit (429) and server (5xx, including Claude's 529 "overloaded") errors.
     """
     client = _get_client()
@@ -296,6 +308,7 @@ def generate(
                 json_schema=json_schema,
                 temperature=temperature,
                 max_output_tokens=max_output_tokens,
+                thinking=thinking,
             )
         except ProviderError as e:
             _log_usage(purpose, None, f"{e.code}: {e.message}")
