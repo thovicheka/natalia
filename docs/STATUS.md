@@ -4,6 +4,21 @@ Live progress for agent work. The agent updates this after every step and pushes
 
 ## Summary
 
+**Run of 2026-10-19 (task 1.9d, branch `task/1.9d-chat-fixes` from `origin/main` at 07c6e4b, 1.9c merged as PR #20): done in code and tests. Fakes only: 0 real API calls, $0.** It fixes the five problems from the owner's Telegram test (bot log ~12:19 UTC):
+1. **Khmer answer cut off:** thinking (1,132 tokens) + answer shared a 2,000-token limit. Chat now runs with **thinking off** (Haiku 5.5 has no thinking budget, so off is the only hard limit) and gets **4,000 output tokens** for answers and translations (3,000 for the first request and data answers). A reply still cut off is **asked again once with twice the room**, and logged (`retries=1` in the bot's log line). Tested with a fake max_tokens reply.
+2. **Data questions** ("which days?", "how many articles today?", "which sources?"): new kind `data`, answered from counts read from the database, not by search.
+3. **"Tell me more" with no memory:** the prompt now says there's no conversation; new kind `clarify` asks what they mean.
+4. **Khmer persona:** every prompt says Natalia is a woman: ចាស, never បាទ/ខ្ញុំបាទ.
+5. **Complete translations:** new kind `translate`: the whole previous answer (memory now keeps Natalia's replies whole) is translated, with its sources. Before, it was translated from a 600-character copy.
+- **Tests:** 225 pass (+12), ruff clean.
+- **Cost:** small talk ~$0.0002 (+$0.00006, bigger first prompt); Khmer news ~$0.002 (it failed before); worst with a retry ~$0.007. At the cap ~$0.10 a day; a realistic day under $0.01.
+
+**Human must:**
+1. **Approve the real test** (~13 Haiku requests, **~$0.005–0.01**; counts 6 messages toward today's 50). Command in `docs/09-chat.md` step 11:
+   `uv run python -m natalia.chat ask "តើមានព័ត៌មានអ្វីខ្លះអំពីកម្ពុជា និងថៃ?" "translate to English" "which days do you have news for?" "how many articles today?" "what sources do you use?"`, then `uv run python -m natalia.chat ask "tell me more"`.
+2. Review and merge `task/1.9d-chat-fixes`; then `git -C ~/projects/natalia-runtime pull --ff-only origin main` and `sudo systemctl restart natalia-bot`. No new packages, no migration.
+3. ⚠️ Found while testing (not changed): **no articles were collected on 2026-10-18 or 2026-10-19.** The Prefect deployment `natalia-daily` is active (`0 5 * * *`, not paused), and `natalia-worker` is active, but Prefect has created **no flow run** since the manual `radiant-inchworm` on 2026-10-17. Worth checking in the Prefect UI (is the server's scheduler service running?). Until then, "how many articles today?" will truthfully say 0.
+
 **Run of 2026-10-18 (task 1.9c, branch `task/1.9c-natural-chat` from `origin/main` at 65130ae, 1.9b merged): done. The real six-message test passed: 9 Haiku requests, 22,631 input + 1,382 output tokens, $0.0030.**
 - **Reply or search:** one small Haiku request decides the kind:
   - **chat:** small talk, answered right there.
@@ -1621,6 +1636,43 @@ All checks passed!
   file 58679296
   ```
   ✅ Peak 290 MiB under the 600M cap; idle 145 MiB = 82 MiB worker + 56 MiB page cache. The embed step's memory plan is in ROADMAP 1.9b.
+
+## 1.9d — Chat fixes from real use
+- **Branch:** `task/1.9d-chat-fixes`, from `origin/main` at 07c6e4b (1.9c merged as PR #20).
+- **State:** ✅ code, tests and docs done. No real API call yet; 🧑 approve the real test, merge, restart the bot.
+- **Why:** the owner's Telegram test on 2026-10-19 (~12:19 UTC):
+  ```console
+  $ journalctl -u natalia-bot --since "12:19" --until "12:21" --no-pager | grep -E "natalia\.(llm|bot)"
+  … natalia.llm INFO llm {'at': '2026-10-19T12:19:58+00:00', 'purpose': 'chat', 'model': 'claude-haiku-5-5', 'input_tokens': 4391, 'output_tokens': 868, 'thinking_tokens': 1132, 'error': ''}
+  … natalia.bot INFO chat: reply isn't the JSON asked for (stop reason max_tokens)
+  … natalia.bot INFO chat: kind=news lang=km retrieved=8 covered=None sources=0 requests=2 tokens=5861+2049 error=reply isn't the JSON asked for (stop reason max_tokens)
+  … natalia.llm INFO llm {'at': '2026-10-19T12:20:46+00:00', 'purpose': 'chat', 'model': 'claude-haiku-5-5', 'input_tokens': 1703, 'output_tokens': 674, 'thinking_tokens': 0, 'error': ''}
+  … natalia.bot INFO chat: kind=chat lang=en retrieved=0 covered=None sources=0 requests=1 tokens=1703+674
+  ```
+  - ❌ **Khmer answer cut off.** *Error:* `stop reason max_tokens`; the owner got "try again later". *Cause:* thinking (1,132) and the answer (868) shared `MAX_OUTPUT_TOKENS = 2000`, and Khmer takes ~3–4× the tokens of English. *Fix:* below.
+  - ❌ **Incomplete translation** (12:20:46, answered as `chat`). *Cause:* translated from memory's copy of the previous answer, cut to 600 characters (that answer was 280 output tokens, ~1,100 characters), so its end, the Cambodia–Thailand talks, was dropped. *Fix:* `translate` below.
+  - ❌ Data questions searched as news, "tell me more" after `/forget` searched random articles, and Khmer replies said បាទ (reported by the owner).
+- **Done** (commit 45a7eea):
+  - `natalia/llm.py`: `generate(..., thinking=False)` sends `thinking: {"type": "disabled"}` (accepted by Haiku 5.5 at effort low–high; it has no `budget_tokens`). Default unchanged, so the digest keeps adaptive thinking at "low". Gemini ignores it.
+  - `natalia/chat.py`:
+    - **Output room and retry:** all chat requests run with thinking off. `MAX_OUTPUT_TOKENS` 2,000 → 4,000; `REPLY_OUTPUT_TOKENS` 1,500 → 3,000; new `DATA_OUTPUT_TOKENS` 3,000 and `TRANSLATE_OUTPUT_TOKENS` 4,000. `_call` asks again **once** with `RETRY_FACTOR` (2) times the room when a reply isn't JSON and stopped at `max_tokens`. It logs `chat: reply stopped at max_tokens (…); asking again with …`, counts every request's tokens, and keeps the count in `Answer.retries`. The bot's log line now shows `retries=N`.
+    - **New kinds** in the first request's schema: `clarify` (asks back, 1 request), `data` (`data_facts()` + a second request with `DATA_SYSTEM`, no search), `translate` (`TRANSLATE_SYSTEM` with the whole previous answer; the reply keeps its sources and general-knowledge line; nothing to translate → a fixed question).
+    - **No conversation is said out loud:** `build_reply_prompt` starts with "Conversation so far: none. This is the start of the conversation…" when memory is empty.
+    - **Persona:** `PERSONA` (a woman; ចាស/ចាស៎, ខ្ញុំ or នាងខ្ញុំ; never បាទ/ខ្ញុំបាទ) in all four prompts.
+    - **Memory:** `Turn` gains `full`, `kind` and `sources` for Natalia's replies (RAM only, same 30 minutes); the prompts still see the 600-character copy.
+  - `chat_questions.kind` is free text, so the new kinds need no migration.
+- **Tests:**
+  ```console
+  $ uv run pytest -q
+  225 passed in 23.44s
+  $ uv run ruff check . && uv run ruff format --check .
+  All checks passed!
+  47 files already formatted
+  ```
+  ✅ New: max_tokens retry (fake cut-off reply, then a whole one; same prompt, twice the limit, logged), two cut-offs fail after one retry, thinking off on every chat request, the persona in all prompts, `clarify` with no memory, `data` answered without search, `data_facts` local-day counts/digests/paywalled marks, a full translation with sources (an answer over 600 characters), a translated general answer keeping its note, nothing to translate, and `thinking: disabled` in the Anthropic request.
+- **Free checks:** a dry run shows the "Conversation so far: none" line; `data_facts()` on the real database lists 3 collection days (15–17 Oct), 2 digests and the 66 sources in 1,812 characters (full output in `docs/09-chat.md` step 10).
+- **Docs:** `docs/09-chat.md` (kinds, room and retry, persona, memory, 1.9d cost table, steps 10–11, verify), `docs/decisions.md` (new entry), `docs/ROADMAP.md` (1.9d, memory row), `docs/07-bot.md`, `docs/STYLE.md`, `README.md`.
+- **Next (🧑):** approve the real test (~$0.005–0.01, command in the summary above), merge, pull the runtime, restart the bot, then in Telegram: a long Khmer news question, "translate that", `/forget`, "tell me more".
 
 ## 1.9c — Natural chat
 - **Branch:** `task/1.9c-natural-chat`, from `origin/main` at 65130ae (1.9b merged as PR #18).
